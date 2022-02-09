@@ -1,0 +1,19 @@
+[package]
+name = "bot"
+version = "0.1.0"
+authors = ["philip"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = "0.8.3"
+ahash = "0.7.2"
+arrayvec = "0.5.2"
+gtk = "0.9.0"
+
+[profile.release]
+lto = "thin"
+panic = "abort"
+# codegen-units = 1
+# debug = 1
