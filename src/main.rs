@@ -12,56 +12,46 @@ fn main() -> io::Result<()> {
     let mut bot = Bot::new(2_000_000);
     let mut rng = thread_rng();
     println!("{}", game);
-    // // let mut i = 0;
+
+    // Agent vs agent, with each agent either choosing the best move or a random move.
     // while !game.over() {
-    //     bot.make_best_move(&mut game, 5);
-    //     // i += 1;
-    //     // if i > 15 {
-    //     //     break;
-    //     // }
+    //     if rng.gen() {
+    //         bot.make_best_move(&mut game, 5);
+    //     } else {
+    //         let moves = game.moves();
+    //         game.make_move(game.offset_move(moves[rng.gen_range(0..moves.len())]));
+    //     }
     //     println!("\n{}", game);
     // }
-    // while !game.over() {
-    //     let moves = game.moves();
-    //     game.make_move(moves[rng.gen_range(0..moves.len())]);
-    //     println!("\n{}", game);
-    // }
-    while !game.over() {
-        if rng.gen() {
-            bot.make_best_move(&mut game, 5);
-        } else {
-            let moves = game.moves();
-            game.make_move(game.offset_move(moves[rng.gen_range(0..moves.len())]));
+
+    // Agent vs human
+    loop {
+        bot.make_best_move(&mut game, 5);
+        println!("\n{}", game);
+        if game.over() {
+            break;
+        }
+        let mut buffer = String::new();
+        loop {
+            io::stdin().read_line(&mut buffer)?;
+            match buffer.parse::<AbsMove>() {
+                Ok(m) => {
+                    if game.moves().contains(&game.unoffset_move(m)) {
+                        game.make_move(m);
+                        break;
+                    }
+                    println!("Illegal move");
+                }
+                Err(e) => {
+                    println!("Invalid syntax: {}", e);
+                }
+            }
+            buffer.clear();
         }
         println!("\n{}", game);
+        if game.over() {
+            break;
+        }
     }
-    // loop {
-    //     bot.make_best_move(&mut game, 5);
-    //     println!("\n{}", game);
-    //     if game.over() {
-    //         break;
-    //     }
-    //     let mut buffer = String::new();
-    //     loop {
-    //         io::stdin().read_line(&mut buffer)?;
-    //         match buffer.parse::<AbsMove>() {
-    //             Ok(m) => {
-    //                 if game.moves().contains(&game.unoffset_move(m)) {
-    //                     game.make_move(m);
-    //                     break;
-    //                 }
-    //                 println!("Illegal move");
-    //             }
-    //             Err(e) => {
-    //                 println!("Invalid syntax: {}", e);
-    //             }
-    //         }
-    //         buffer.clear();
-    //     }
-    //     println!("\n{}", game);
-    //     if game.over() {
-    //         break;
-    //     }
-    // }
     Ok(())
 }
