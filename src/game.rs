@@ -2,7 +2,6 @@ use crate::hive::*;
 use crate::render::*;
 use enum_map::EnumMap;
 use rand::random;
-use std::array::IntoIter;
 use std::collections::HashMap;
 use std::fmt;
 use std::num::ParseIntError;
@@ -268,7 +267,7 @@ impl Game {
         } else {
             self.hive
                 .occupied()
-                .flat_map(|p| IntoIter::new(p.neighbours()))
+                .flat_map(|p| p.neighbours().into_iter())
                 .filter(|&p| self.hive.is_free(p))
                 .filter(|&p| {
                     self.hive

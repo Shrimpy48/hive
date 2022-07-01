@@ -1,7 +1,6 @@
 use crate::render::*;
 use arrayvec::ArrayVec;
 use enum_map::Enum;
-use std::array::IntoIter;
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
@@ -472,7 +471,7 @@ impl Hive {
     }
 
     pub fn neighbours(&self, p: AbsPos, exclude: Option<AbsPos>) -> impl Iterator<Item = &Piece> {
-        IntoIter::new(p.neighbours()).filter_map(move |p| {
+        p.neighbours().into_iter().filter_map(move |p| {
             if let Some(e) = exclude {
                 if p == e {
                     return None;
@@ -502,10 +501,10 @@ impl Hive {
                 continue;
             }
 
-            for &p in val
+            for p in val
                 .neighbours()
-                .iter()
-                .filter(|&&p| !self.is_free(p) && p != excluding)
+                .into_iter()
+                .filter(|&p| !self.is_free(p) && p != excluding)
             {
                 let dist = *dists.get(&val).unwrap() + 1;
                 let should_push = match dists.get(&p) {
@@ -553,7 +552,7 @@ impl Hive {
         match typ {
             PieceType::Queen => {
                 let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.iter().map(|&p| self.is_free(p)).collect();
+                let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
                 let mut out = Vec::new();
                 for d in 0..6 {
                     if surrounding[d]
@@ -567,7 +566,7 @@ impl Hive {
             }
             PieceType::Beetle => {
                 let ns = p.neighbours();
-                let surrounding: Vec<usize> = ns.iter().map(|&p| self.count(p)).collect();
+                let surrounding: Vec<usize> = ns.into_iter().map(|p| self.count(p)).collect();
                 let src_height = self.count(p) - 1;
                 let mut out = Vec::new();
                 for d in 0..6 {
@@ -581,8 +580,8 @@ impl Hive {
                 return out;
             }
             PieceType::Hopper => Dir::dirs()
-                .iter()
-                .filter_map(|&d| {
+                .into_iter()
+                .filter_map(|d| {
                     let mut pos = p.go(d);
                     if self.is_free(pos) {
                         return None;
@@ -601,7 +600,7 @@ impl Hive {
                 to_consider.push_back(p);
                 while let Some(pos) = to_consider.pop_front() {
                     let ns = pos.neighbours();
-                    let surrounding: Vec<bool> = ns.iter().map(|&p| self.is_free(p)).collect();
+                    let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
                     for d in 0..6 {
                         if !visited.contains(&ns[d])
                             && surrounding[d]
@@ -620,7 +619,7 @@ impl Hive {
                 let mut reach_2 = HashSet::new();
                 let mut reach_3 = HashSet::new();
                 let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.iter().map(|&pos| self.is_free(pos)).collect();
+                let surrounding: Vec<bool> = ns.into_iter().map(|pos| self.is_free(pos)).collect();
                 for d in 0..6 {
                     if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
                         reach_1.insert(ns[d]);
