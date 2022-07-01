@@ -417,26 +417,113 @@ impl Hive {
         let s = self.get_mut(src);
         if let Some(piece) = s.pop() {
             if s.is_empty() {
-                if src.0.x == self.bl.0.x
-                    || src.0.y == self.bl.0.y
-                    || src.0.x == self.tr.0.x
-                    || src.0.y == self.tr.0.y
-                {
-                    let (bl, tr) = self.occupied().fold(
-                        (
-                            AbsPos(Pos {
-                                x: i32::MAX,
-                                y: i32::MAX,
-                            }),
-                            AbsPos(Pos {
-                                x: i32::MIN,
-                                y: i32::MIN,
-                            }),
-                        ),
-                        |(bl, tr), pos| (bl.min_pw(pos), tr.max_pw(pos)),
-                    );
-                    self.bl = bl;
-                    self.tr = tr;
+                if src.0.x == self.bl.0.x {
+                    let mut found = false;
+                    // Look for other pieces with the same x coordinate.
+                    for y in self.bl.0.y..=self.tr.0.y {
+                        if !self.is_free(AbsPos(Pos { x: src.0.x, y })) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        // Look for other pieces with an x coordinate 1 larger.
+                        // We need only check the neighbours of src,
+                        // as if there are none then src must have contained the last piece.
+                        for y in [src.0.y - 1, src.0.y] {
+                            if !self.is_free(AbsPos(Pos { x: src.0.x + 1, y })) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            self.bl.0.x += 1;
+                        } else {
+                            // There are no pieces left.
+                            self.bl.0.x = 0;
+                        }
+                    }
+                }
+                if src.0.y == self.bl.0.y {
+                    let mut found = false;
+                    // Look for other pieces with the same y coordinate.
+                    for x in self.bl.0.x..=self.tr.0.x {
+                        if !self.is_free(AbsPos(Pos { x, y: src.0.y })) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        // Look for other pieces with an x coordinate 1 larger.
+                        // We need only check the neighbours of src,
+                        // as if there are none then src must have contained the last piece.
+                        for x in [src.0.x - 1, src.0.x] {
+                            if !self.is_free(AbsPos(Pos { x, y: src.0.y + 1 })) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            self.bl.0.y += 1;
+                        } else {
+                            // There are no pieces left.
+                            self.bl.0.y = 0;
+                        }
+                    }
+                }
+                if src.0.x == self.tr.0.x {
+                    let mut found = false;
+                    // Look for other pieces with the same x coordinate.
+                    for y in self.bl.0.y..=self.tr.0.y {
+                        if !self.is_free(AbsPos(Pos { x: src.0.x, y })) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        // Look for other pieces with an x coordinate 1 smaller.
+                        // We need only check the neighbours of src,
+                        // as if there are none then src must have contained the last piece.
+                        for y in [src.0.y, src.0.y + 1] {
+                            if !self.is_free(AbsPos(Pos { x: src.0.x - 1, y })) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            self.tr.0.x -= 1;
+                        } else {
+                            // There are no pieces left.
+                            self.tr.0.x = 0;
+                        }
+                    }
+                }
+                if src.0.y == self.tr.0.y {
+                    let mut found = false;
+                    // Look for other pieces with the same y coordinate.
+                    for x in self.bl.0.x..=self.tr.0.x {
+                        if !self.is_free(AbsPos(Pos { x, y: src.0.y })) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        // Look for other pieces with an x coordinate 1 smaller.
+                        // We need only check the neighbours of src,
+                        // as if there are none then src must have contained the last piece.
+                        for x in [src.0.x, src.0.x + 1] {
+                            if !self.is_free(AbsPos(Pos { x, y: src.0.y - 1 })) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            self.tr.0.y -= 1;
+                        } else {
+                            // There are no pieces left.
+                            self.tr.0.y = 0;
+                        }
+                    }
                 }
             }
             return Some(piece);

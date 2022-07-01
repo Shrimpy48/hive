@@ -11,8 +11,7 @@ rand = "0.8.5"
 arrayvec = "0.7.2"
 enum-map = "2.4.0"
 
-[profile.release]
-lto = "thin"
-panic = "abort"
-# codegen-units = 1
-# debug = 1
+[profile.prof]
+inherits = "release"
+lto = false
+debug = true
