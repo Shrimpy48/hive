@@ -4,11 +4,11 @@
 
 use crate::game::*;
 use crate::hive::{Colour, Piece};
-use ahash::AHashMap;
 use rand::rngs::ThreadRng;
 use rand::{thread_rng, Rng};
 use std::cmp::{Ord, Ordering};
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::ops::Neg;
 
 /// The value assigned to a search node.
@@ -104,7 +104,7 @@ struct TEntry {
 /// to avoid expensive bookkeeping.
 struct TTable {
     /// The entries in the table.
-    data: AHashMap<u64, TEntry>,
+    data: HashMap<u64, TEntry>,
     /// The maximum number of entries to store in the table.
     max_size: usize,
     rng: ThreadRng,
@@ -114,7 +114,7 @@ impl TTable {
     /// Create a transposition table with the given size.
     fn new(max_size: usize) -> TTable {
         TTable {
-            data: AHashMap::with_capacity(max_size),
+            data: HashMap::with_capacity(max_size),
             max_size,
             rng: thread_rng(),
         }

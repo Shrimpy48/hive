@@ -1,10 +1,10 @@
 use crate::render::*;
-use ahash::AHashMap;
 use arrayvec::ArrayVec;
+use enum_map::Enum;
 use std::array::IntoIter;
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::collections::BinaryHeap;
+use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
@@ -12,7 +12,7 @@ use std::num::ParseIntError;
 use std::ops::{Add, Div, Sub};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum, Hash)]
 pub enum Colour {
     White,
     Black,
@@ -27,7 +27,7 @@ impl Colour {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Enum, Clone, Copy, Hash)]
 pub enum PieceType {
     Queen,
     Beetle,
@@ -72,7 +72,7 @@ impl FromStr for PieceType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum, Hash)]
 pub struct Piece {
     pub typ: PieceType,
     pub col: Colour,
@@ -106,8 +106,10 @@ impl fmt::Display for Piece {
     }
 }
 
-type PieceStack = ArrayVec<[Piece; 5]>;
-// type PieceStack = ArrayVec<[Piece; 7]>;
+// At most 5 pieces can be stacked (4 beetles on top of another piece).
+// With mosquitoes 7 can be stacked.
+type PieceStack = ArrayVec<Piece, 5>;
+// type PieceStack = ArrayVec<Piece, 7>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct Pos {
@@ -366,9 +368,19 @@ impl PartialOrd for CostItem {
     }
 }
 
+// There are 22 pieces (26 with ladybirds and mosquitoes).
+// The board must have space to put all of these in a line without touching the other end.
+const BOARD_SIZE: usize = 23;
+// const BOARD_SIZE: usize = 27;
+
+// Uses a fixed-size toroidal playing surface.
+// The hive can move arbitrarily far, but its size is bounded by the number of pieces,
+// so this representation correctly models the hive.
+// The origin is placed in the middle of the board so that wrapping occurs infrequently
+// as this should benefit caching.
 #[derive(Debug, Clone)]
 pub struct Hive {
-    data: AHashMap<AbsPos, PieceStack>,
+    data: [[PieceStack; BOARD_SIZE]; BOARD_SIZE],
     pub bl: AbsPos,
     pub tr: AbsPos,
 }
@@ -386,21 +398,26 @@ impl Hive {
         (self.tr.0 + self.bl.0) / 2
     }
 
+    fn get(&self, pos: AbsPos) -> &PieceStack {
+        &self.data[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+    }
+
+    fn get_mut(&mut self, pos: AbsPos) -> &mut PieceStack {
+        &mut self.data[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+    }
+
     pub fn push(&mut self, dst: AbsPos, piece: Piece) {
         self.bl = self.bl.min_pw(dst);
         self.tr = self.tr.max_pw(dst);
-        self.data
-            .entry(dst)
-            .or_insert_with(ArrayVec::new)
-            .push(piece);
+        self.get_mut(dst).push(piece);
     }
 
     pub fn pop(&mut self, src: AbsPos) -> Option<Piece> {
-        if let Entry::Occupied(mut e) = self.data.entry(src) {
-            let s = e.get_mut();
-            let piece = s.pop().unwrap();
+        let s = self.get_mut(src);
+        if let Some(piece) = s.pop() {
             if s.is_empty() {
-                e.remove();
                 if src.0.x == self.bl.0.x
                     || src.0.y == self.bl.0.y
                     || src.0.x == self.tr.0.x
@@ -417,7 +434,7 @@ impl Hive {
                                 y: i32::MIN,
                             }),
                         ),
-                        |(bl, tr), pos| (bl.min_pw(*pos), tr.max_pw(*pos)),
+                        |(bl, tr), pos| (bl.min_pw(pos), tr.max_pw(pos)),
                     );
                     self.bl = bl;
                     self.tr = tr;
@@ -428,26 +445,30 @@ impl Hive {
         return None;
     }
 
-    pub fn occupied(&self) -> impl Iterator<Item = &AbsPos> {
-        self.data.keys()
+    pub fn occupied(&self) -> impl Iterator<Item = AbsPos> + '_ {
+        (self.bl.0.x..=self.tr.0.x)
+            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| AbsPos(Pos { x, y })))
+            .filter(move |p| !self.is_free(*p))
     }
 
-    pub fn tiles(&self) -> impl Iterator<Item = (&AbsPos, &Piece)> {
-        self.data.iter().map(|(p, s)| (p, s.last().unwrap()))
+    pub fn tiles(&self) -> impl Iterator<Item = (AbsPos, &Piece)> {
+        (self.bl.0.x..=self.tr.0.x)
+            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| AbsPos(Pos { x, y })))
+            .filter_map(move |p| self.get(p).last().map(|t| (p, t)))
     }
 
-    pub fn all(&self) -> impl Iterator<Item = (&AbsPos, usize, &Piece)> {
-        self.data
-            .iter()
-            .flat_map(|(p, s)| s.iter().enumerate().map(move |(h, v)| (p, h, v)))
+    pub fn all(&self) -> impl Iterator<Item = (AbsPos, usize, &Piece)> {
+        (self.bl.0.x..=self.tr.0.x)
+            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| AbsPos(Pos { x, y })))
+            .flat_map(move |p| self.get(p).iter().enumerate().map(move |(h, v)| (p, h, v)))
     }
 
-    pub fn is_free(&self, p: &AbsPos) -> bool {
-        !self.data.contains_key(p)
+    pub fn is_free(&self, p: AbsPos) -> bool {
+        self.get(p).is_empty()
     }
 
-    fn count(&self, p: &AbsPos) -> usize {
-        self.data.get(p).map(|s| s.len()).unwrap_or(0)
+    fn count(&self, p: AbsPos) -> usize {
+        self.get(p).len()
     }
 
     pub fn neighbours(&self, p: AbsPos, exclude: Option<AbsPos>) -> impl Iterator<Item = &Piece> {
@@ -457,14 +478,14 @@ impl Hive {
                     return None;
                 }
             }
-            self.data.get(&p).and_then(|s| s.last())
+            self.get(p).last()
         })
     }
 
     fn are_connected(&self, a: AbsPos, b: AbsPos, excluding: AbsPos) -> bool {
         // Performs an A* search using min_dist as the heuristic
         let mut heap = BinaryHeap::new();
-        let mut dists: AHashMap<AbsPos, u32> = Default::default();
+        let mut dists: HashMap<AbsPos, u32> = Default::default();
         dists.insert(a, 0);
         heap.push(CostItem {
             cost: a.min_dist(b),
@@ -484,7 +505,7 @@ impl Hive {
             for &p in val
                 .neighbours()
                 .iter()
-                .filter(|&p| !self.is_free(p) && *p != excluding)
+                .filter(|&&p| !self.is_free(p) && p != excluding)
             {
                 let dist = *dists.get(&val).unwrap() + 1;
                 let should_push = match dists.get(&p) {
@@ -504,15 +525,15 @@ impl Hive {
     }
 
     fn is_structural(&self, p: AbsPos) -> bool {
-        if self.count(&p) > 1 {
+        if self.count(p) > 1 {
             return false;
         }
         let mut ns = p.neighbours().to_vec();
-        ns.dedup_by_key(|n| self.is_free(n));
-        if self.is_free(ns.first().unwrap()) == self.is_free(ns.last().unwrap()) {
+        ns.dedup_by_key(|n| self.is_free(*n));
+        if self.is_free(*ns.first().unwrap()) == self.is_free(*ns.last().unwrap()) {
             ns.pop();
         }
-        ns.retain(|n| !self.is_free(n));
+        ns.retain(|n| !self.is_free(*n));
         if ns.len() <= 1 {
             return false;
         }
@@ -532,7 +553,7 @@ impl Hive {
         match typ {
             PieceType::Queen => {
                 let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.iter().map(|p| self.is_free(&p)).collect();
+                let surrounding: Vec<bool> = ns.iter().map(|&p| self.is_free(p)).collect();
                 let mut out = Vec::new();
                 for d in 0..6 {
                     if surrounding[d]
@@ -546,8 +567,8 @@ impl Hive {
             }
             PieceType::Beetle => {
                 let ns = p.neighbours();
-                let surrounding: Vec<usize> = ns.iter().map(|p| self.count(&p)).collect();
-                let src_height = self.count(&p) - 1;
+                let surrounding: Vec<usize> = ns.iter().map(|&p| self.count(p)).collect();
+                let src_height = self.count(p) - 1;
                 let mut out = Vec::new();
                 for d in 0..6 {
                     if surrounding[d].max(src_height)
@@ -563,11 +584,11 @@ impl Hive {
                 .iter()
                 .filter_map(|&d| {
                     let mut pos = p.go(d);
-                    if self.is_free(&pos) {
+                    if self.is_free(pos) {
                         return None;
                     }
                     pos = pos.go(d);
-                    while !self.is_free(&pos) {
+                    while !self.is_free(pos) {
                         pos = pos.go(d);
                     }
                     return Some(pos);
@@ -580,7 +601,7 @@ impl Hive {
                 to_consider.push_back(p);
                 while let Some(pos) = to_consider.pop_front() {
                     let ns = pos.neighbours();
-                    let surrounding: Vec<bool> = ns.iter().map(|p| self.is_free(&p)).collect();
+                    let surrounding: Vec<bool> = ns.iter().map(|&p| self.is_free(p)).collect();
                     for d in 0..6 {
                         if !visited.contains(&ns[d])
                             && surrounding[d]
@@ -599,7 +620,7 @@ impl Hive {
                 let mut reach_2 = HashSet::new();
                 let mut reach_3 = HashSet::new();
                 let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.iter().map(|&pos| self.is_free(&pos)).collect();
+                let surrounding: Vec<bool> = ns.iter().map(|&pos| self.is_free(pos)).collect();
                 for d in 0..6 {
                     if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
                         reach_1.insert(ns[d]);
@@ -609,7 +630,7 @@ impl Hive {
                     let ns = pos.neighbours();
                     let surrounding: Vec<bool> = ns
                         .iter()
-                        .map(|&pos| if pos == p { true } else { self.is_free(&pos) })
+                        .map(|&pos| if pos == p { true } else { self.is_free(pos) })
                         .collect();
                     for d in 0..6 {
                         if ns[d] != p
@@ -625,7 +646,7 @@ impl Hive {
                     let ns = pos.neighbours();
                     let surrounding: Vec<bool> = ns
                         .iter()
-                        .map(|&pos| if pos == p { true } else { self.is_free(&pos) })
+                        .map(|&pos| if pos == p { true } else { self.is_free(pos) })
                         .collect();
                     for d in 0..6 {
                         if ns[d] != p
@@ -648,7 +669,7 @@ impl fmt::Display for Hive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let offset = self.offset();
         let mut canvas = Canvas::new();
-        let mut to_draw: Vec<(&AbsPos, usize, &Piece)> = self.all().collect();
+        let mut to_draw: Vec<_> = self.all().collect();
         to_draw.sort_unstable_by_key(|(_, h, _)| *h);
         for (pos, h, piece) in to_draw {
             let pos_offset = pos.to_rel(offset);

@@ -1,16 +1,16 @@
 use crate::hive::*;
 use crate::render::*;
-use ahash::AHashMap;
+use enum_map::EnumMap;
 use rand::random;
 use std::array::IntoIter;
-use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
 #[derive(Debug)]
 struct Hand {
-    data: AHashMap<PieceType, u8>,
+    data: EnumMap<PieceType, u8>,
 }
 
 impl Hand {
@@ -32,12 +32,9 @@ impl Hand {
     }
 
     fn remove(&mut self, piece: PieceType) -> bool {
-        if let Entry::Occupied(mut e) = self.data.entry(piece) {
-            let c = e.get_mut();
+        let c = &mut self.data[piece];
+        if *c > 0 {
             *c -= 1;
-            if *c == 0 {
-                e.remove();
-            }
             true
         } else {
             false
@@ -45,11 +42,11 @@ impl Hand {
     }
 
     fn add(&mut self, piece: PieceType) {
-        *self.data.entry(piece).or_insert(0) += 1;
+        self.data[piece] += 1;
     }
 
     fn pieces(&self) -> impl Iterator<Item = PieceType> + '_ {
-        self.data.keys().map(|&p| p)
+        self.data.iter().filter_map(|(p, &n)| (n > 0).then_some(p))
     }
 }
 
@@ -106,7 +103,7 @@ pub enum Outcome {
 }
 
 struct ZobristTable {
-    data: AHashMap<(RelPos, usize, Piece), u64>,
+    data: HashMap<(RelPos, usize, Piece), u64>,
     turn_num: [u64; 9],
     turn: [u64; 2],
     rep_num: [u64; 5],
@@ -136,7 +133,7 @@ pub struct Game {
     pub white_queen: Option<AbsPos>,
     pub black_queen: Option<AbsPos>,
     ztable: ZobristTable,
-    reptable: AHashMap<u64, u8>,
+    reptable: HashMap<u64, u8>,
     current_reps: u8,
 }
 
@@ -271,8 +268,8 @@ impl Game {
         } else {
             self.hive
                 .occupied()
-                .flat_map(|&p| IntoIter::new(p.neighbours()))
-                .filter(|p| self.hive.is_free(p))
+                .flat_map(|p| IntoIter::new(p.neighbours()))
+                .filter(|&p| self.hive.is_free(p))
                 .filter(|&p| {
                     self.hive
                         .neighbours(p, None)
@@ -291,7 +288,7 @@ impl Game {
         } else {
             self.hive
                 .tiles()
-                .filter_map(|(&p, &Piece { typ, col })| {
+                .filter_map(|(p, &Piece { typ, col })| {
                     if col == self.turn {
                         Some((p, typ))
                     } else {
@@ -355,11 +352,11 @@ impl Game {
             white_queen: None,
             black_queen: None,
             ztable: ZobristTable::new(),
-            reptable: AHashMap::new(),
+            reptable: HashMap::new(),
             current_reps: 1,
         };
         let key = game.hash_key();
-        let mut reptable = AHashMap::new();
+        let mut reptable = HashMap::new();
         reptable.insert(key, 1);
         game.reptable = reptable;
         game
@@ -447,6 +444,7 @@ impl fmt::Display for Hand {
                 // PieceType::Pillbug => ['P', 'I', 'L'],
             };
             let l2 = match count {
+                0 => [' ', '0', ' '],
                 1 => [' ', '1', ' '],
                 2 => [' ', '2', ' '],
                 3 => [' ', '3', ' '],
@@ -456,7 +454,7 @@ impl fmt::Display for Hand {
                 7 => [' ', '7', ' '],
                 8 => [' ', '8', ' '],
                 9 => [' ', '9', ' '],
-                _ => panic!("Count too large"),
+                i => panic!("Count too large: {}", i),
             };
             canvas.put_tile((x, 0), l1, l2);
             x += 7;
