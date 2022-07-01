@@ -76,10 +76,7 @@ enum TValue {
 impl TValue {
     /// Whether the value is exact as opposed to a bound.
     fn is_exact(&self) -> bool {
-        match self {
-            TValue::Exact(_) => true,
-            _ => false,
-        }
+        matches!(self, TValue::Exact(_))
     }
 }
 
@@ -142,9 +139,7 @@ impl TTable {
         match self.data.entry(key) {
             Entry::Occupied(mut oe) => {
                 let &TEntry { d, val: _, ms: _ } = oe.get();
-                if entry.d > d {
-                    oe.insert(entry);
-                } else if entry.d == d && entry.val.is_exact() {
+                if entry.d > d || (entry.d == d && entry.val.is_exact()) {
                     oe.insert(entry);
                 }
             }
@@ -441,7 +436,7 @@ impl Bot {
             },
         );
 
-        return (best_m, value);
+        (best_m, value)
     }
 
     /// Compute the value of the state, using [Self::static_val] for depth 0 or terminal nodes and [Self::search] otherwise.
@@ -450,6 +445,6 @@ impl Bot {
             return self.static_val(game);
         }
         let (_, v) = self.search(game, depth, a, b);
-        return v;
+        v
     }
 }

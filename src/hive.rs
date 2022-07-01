@@ -334,7 +334,7 @@ enum Dir {
 }
 
 impl Dir {
-    fn dirs() -> [Dir; 6] {
+    const fn dirs() -> [Dir; 6] {
         [
             Dir::Up,
             Dir::UpRight,
@@ -528,7 +528,7 @@ impl Hive {
             }
             return Some(piece);
         }
-        return None;
+        None
     }
 
     pub fn occupied(&self) -> impl Iterator<Item = AbsPos> + '_ {
@@ -607,7 +607,7 @@ impl Hive {
                 }
             }
         }
-        return false;
+        false
     }
 
     fn is_structural(&self, p: AbsPos) -> bool {
@@ -629,7 +629,7 @@ impl Hive {
                 return true;
             }
         }
-        return false;
+        false
     }
 
     pub fn destinations(&self, p: AbsPos, typ: PieceType) -> Vec<AbsPos> {
@@ -649,7 +649,7 @@ impl Hive {
                         out.push(ns[d]);
                     }
                 }
-                return out;
+                out
             }
             PieceType::Beetle => {
                 let ns = p.neighbours();
@@ -664,7 +664,7 @@ impl Hive {
                         out.push(ns[d]);
                     }
                 }
-                return out;
+                out
             }
             PieceType::Hopper => Dir::dirs()
                 .into_iter()
@@ -677,7 +677,7 @@ impl Hive {
                     while !self.is_free(pos) {
                         pos = pos.go(d);
                     }
-                    return Some(pos);
+                    Some(pos)
                 })
                 .collect(),
             PieceType::Ant => {

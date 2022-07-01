@@ -309,14 +309,11 @@ impl Game {
         if moves.is_empty() {
             moves.push(RelMove::Skip);
         }
-        return moves;
+        moves
     }
 
     pub fn over(&self) -> bool {
-        match self.result() {
-            Outcome::Ongoing => false,
-            _ => true,
-        }
+        matches!(self.result(), Outcome::Ongoing)
     }
 
     pub fn result(&self) -> Outcome {
@@ -467,14 +464,14 @@ impl fmt::Display for Game {
         write!(f, "{}", self.black_hand)?;
         match self.turn {
             Colour::White => {
-                write!(f, "B ---------------------------------\n")?;
+                writeln!(f, "B ---------------------------------")?;
                 write!(f, "{}", self.hive)?;
-                write!(f, "W --------------------------------- *\n")?;
+                writeln!(f, "W --------------------------------- *")?;
             }
             Colour::Black => {
-                write!(f, "B --------------------------------- *\n")?;
+                writeln!(f, "B --------------------------------- *")?;
                 write!(f, "{}", self.hive)?;
-                write!(f, "W ---------------------------------\n")?;
+                writeln!(f, "W ---------------------------------")?;
             }
         }
         write!(f, "{}", self.white_hand)
