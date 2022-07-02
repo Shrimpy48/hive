@@ -234,7 +234,7 @@ impl Bot {
                         let (wn, bn): (Vec<&Piece>, Vec<&Piece>) = game
                             .hive
                             .neighbours(pos, None)
-                            .partition(|n| n.col == Colour::White);
+                            .partition(|n| n.col() == Colour::White);
                         (wn.len() as i32, bn.len() as i32)
                     }
                 };
@@ -245,7 +245,7 @@ impl Bot {
                         let (wn, bn): (Vec<&Piece>, Vec<&Piece>) = game
                             .hive
                             .neighbours(pos, None)
-                            .partition(|n| n.col == Colour::White);
+                            .partition(|n| n.col() == Colour::White);
                         (wn.len() as i32, bn.len() as i32)
                     }
                 };

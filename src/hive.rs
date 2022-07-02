@@ -1,6 +1,7 @@
 use crate::render::*;
-use arrayvec::ArrayVec;
+use crate::small_arrayvec::SmallArrayVec;
 use enum_map::Enum;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::collections::HashMap;
@@ -11,10 +12,11 @@ use std::num::ParseIntError;
 use std::ops::{Add, Div, Sub};
 use std::str::FromStr;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
 pub enum Colour {
     White,
-    Black,
+    Black = 0b10000000,
 }
 
 impl Colour {
@@ -26,7 +28,8 @@ impl Colour {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Enum, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Enum, Clone, Copy, Hash, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
 pub enum PieceType {
     Queen,
     Beetle,
@@ -71,15 +74,36 @@ impl FromStr for PieceType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Enum, Hash)]
-pub struct Piece {
-    pub typ: PieceType,
-    pub col: Colour,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoPrimitive, TryFromPrimitive)]
+#[repr(u8)]
+pub enum Piece {
+    WhiteQueen,
+    WhiteBeetle,
+    WhiteHopper,
+    WhiteSpider,
+    WhiteAnt,
+    BlackQueen = 0b10000000,
+    BlackBeetle,
+    BlackHopper,
+    BlackSpider,
+    BlackAnt,
 }
 
 impl Piece {
+    pub fn new(typ: PieceType, col: Colour) -> Self {
+        (typ as u8 | col as u8).try_into().unwrap()
+    }
+
+    pub fn typ(self) -> PieceType {
+        (self as u8 & 0b01111111).try_into().unwrap()
+    }
+
+    pub fn col(self) -> Colour {
+        (self as u8 & 0b10000000).try_into().unwrap()
+    }
+
     fn put(&self, canvas: &mut Canvas, coord: Coord) {
-        let l1 = match self.typ {
+        let l1 = match self.typ() {
             PieceType::Queen => ['B', 'E', 'E'],
             PieceType::Beetle => ['B', 'T', 'L'],
             PieceType::Hopper => ['G', 'H', 'R'],
@@ -89,7 +113,7 @@ impl Piece {
             // PieceType::Mosquito => ['M', 'O', 'Z'],
             // PieceType::Pillbug => ['P', 'I', 'L'],
         };
-        let l2 = match self.col {
+        let l2 = match self.col() {
             Colour::White => [' ', 'W', ' '],
             Colour::Black => [' ', 'B', ' '],
         };
@@ -107,8 +131,8 @@ impl fmt::Display for Piece {
 
 // At most 5 pieces can be stacked (4 beetles on top of another piece).
 // With mosquitoes 7 can be stacked.
-type PieceStack = ArrayVec<Piece, 5>;
-// type PieceStack = ArrayVec<Piece, 7>;
+pub type PieceStack = SmallArrayVec<Piece, 5>;
+// type PieceStack = SmallArrayVec<Piece, 7>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct Pos {

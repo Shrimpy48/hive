@@ -171,20 +171,14 @@ impl Game {
         match m {
             AbsMove::Place { piece, dst } => {
                 self.current_hand_mut().remove(piece);
-                self.hive.push(
-                    dst,
-                    Piece {
-                        typ: piece,
-                        col: self.turn,
-                    },
-                );
+                self.hive.push(dst, Piece::new(piece, self.turn));
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
             }
             AbsMove::Move { src, dst } => {
                 let piece = self.hive.pop(src).unwrap();
-                if piece.typ == PieceType::Queen {
+                if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
                 self.hive.push(dst, piece);
@@ -213,7 +207,7 @@ impl Game {
             }
             AbsMove::Move { src, dst } => {
                 let piece = self.hive.pop(dst).unwrap();
-                if piece.typ == PieceType::Queen {
+                if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(src);
                 }
                 self.hive.push(src, piece);
@@ -274,7 +268,7 @@ impl Game {
                 .filter(|&p| {
                     self.hive
                         .neighbours(p, None)
-                        .all(|Piece { typ: _, col }| *col == self.turn)
+                        .all(|piece| piece.col() == self.turn)
                 })
                 .collect()
         };
@@ -289,9 +283,9 @@ impl Game {
         } else {
             self.hive
                 .tiles()
-                .filter_map(|(p, &Piece { typ, col })| {
-                    if col == self.turn {
-                        Some((p, typ))
+                .filter_map(|(p, piece)| {
+                    if piece.col() == self.turn {
+                        Some((p, piece.typ()))
                     } else {
                         None
                     }
