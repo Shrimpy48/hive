@@ -240,8 +240,10 @@ impl Game {
 
         // Connectivity
         // 	Connected undirected graph, find vertex cuts of cardinality 1
-        // 	Dynamic connectivity problem (but with changing vertices instead of edges)
-        // 	If a pair of vertices are part of a cycle, they are connected no matter which vertex is excluded ("biconnected")
+        // 	Like a dynamic connectivity problem (but with changing vertices instead of edges)
+        //
+        // 	A vertex is structural iff it has multiple neighbour groups and is not in a cycle
+        //
         // 	If a vertex has multiple neighbour groups, at least 1 of which is a structural separated neighbour, then it is also structural
         // 	Note that A is a separated neighbour of B iff B is a separated neighbour of A
 
@@ -313,7 +315,7 @@ impl Game {
     }
 
     pub fn over(&self) -> bool {
-        matches!(self.result(), Outcome::Ongoing)
+        !matches!(self.result(), Outcome::Ongoing)
     }
 
     pub fn result(&self) -> Outcome {
