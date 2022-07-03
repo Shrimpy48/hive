@@ -1,6 +1,6 @@
-//! The agent.
+//! A minimax agent.
 //!
-//! Contains the searching and transposition storing logic.
+//! Contains searching and transposition storing logic for playing Hive.
 
 use crate::game::*;
 use crate::hive::{Colour, Piece};

@@ -50,7 +50,7 @@ impl Hand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AbsMove {
     Place { piece: PieceType, dst: AbsPos },
     Move { src: AbsPos, dst: AbsPos },
