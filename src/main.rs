@@ -1,6 +1,6 @@
 use crate::bot::*;
 use crate::game::*;
-use rand::{thread_rng, Rng};
+use rand::prelude::*;
 use std::io;
 mod bot;
 mod game;
@@ -16,19 +16,21 @@ fn main() -> io::Result<()> {
 
     // Agent vs agent, with each agent either choosing the best move or a random move.
     // while !game.over() {
-    //     if rng.gen() {
-    //         bot.make_best_move(&mut game, 5);
+    //     let m = if rng.gen() {
+    //         bot.best_move(&mut game, 5)
     //     } else {
     //         let moves = game.moves();
-    //         game.make_move(game.offset_move(moves[rng.gen_range(0..moves.len())]));
-    //     }
-    //     println!("\n{}", game);
+    //         *moves.choose(&mut rng).unwrap()
+    //     };
+    //     game.make_move(m);
+    //     println!("{}\n{}", m, game);
     // }
 
     // Agent vs human
     loop {
-        bot.make_best_move(&mut game, 5);
-        println!("\n{}", game);
+        let m = bot.best_move(&mut game, 6);
+        game.make_move(m);
+        println!("{}\n{}", m, game);
         if game.over() {
             break;
         }
@@ -37,7 +39,7 @@ fn main() -> io::Result<()> {
             io::stdin().read_line(&mut buffer)?;
             match buffer.parse::<AbsMove>() {
                 Ok(m) => {
-                    if game.moves().contains(&game.unoffset_move(m)) {
+                    if game.moves().contains(&m) {
                         game.make_move(m);
                         break;
                     }
@@ -49,7 +51,7 @@ fn main() -> io::Result<()> {
             }
             buffer.clear();
         }
-        println!("\n{}", game);
+        println!("{}", game);
         if game.over() {
             break;
         }

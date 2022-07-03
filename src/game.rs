@@ -297,7 +297,7 @@ impl Game {
         }
     }
 
-    pub fn moves(&self) -> Vec<RelMove> {
+    pub fn moves(&self) -> Vec<AbsMove> {
         // Special cases:
         // ply 0:
         // 	place (0,0)
@@ -322,7 +322,6 @@ impl Game {
         if self.over() {
             return Vec::new();
         }
-        let offset = self.hive.offset();
         let placeable = if self.current_queen().is_none() && self.turn_counter >= 6 {
             vec![PieceType::Queen]
         } else {
@@ -346,10 +345,9 @@ impl Game {
                 .collect()
         };
         let placings = places.into_iter().flat_map(|l| {
-            placeable.iter().map(move |p| RelMove::Place {
-                piece: *p,
-                dst: l.to_rel(offset),
-            })
+            placeable
+                .iter()
+                .map(move |p| AbsMove::Place { piece: *p, dst: l })
         });
         let mut moves = if self.current_queen().is_none() {
             vec![]
@@ -368,16 +366,13 @@ impl Game {
                     self.hive
                         .destinations(&struct_points, p, typ)
                         .into_iter()
-                        .map(move |d| RelMove::Move {
-                            src: p.to_rel(offset),
-                            dst: d.to_rel(offset),
-                        })
+                        .map(move |d| AbsMove::Move { src: p, dst: d })
                 })
                 .collect()
         };
         moves.extend(placings);
         if moves.is_empty() {
-            moves.push(RelMove::Skip);
+            moves.push(AbsMove::Skip);
         }
         moves
     }

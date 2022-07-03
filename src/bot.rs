@@ -172,11 +172,10 @@ impl Bot {
     ///
     /// Will stop once a guaranteed win/loss is found
     /// or the given depth limit is reached.
-    pub fn make_best_move(&mut self, game: &mut Game, depth: u8) {
+    pub fn best_move(&mut self, game: &mut Game, depth: u8) -> AbsMove {
         let ms = game.moves();
         if ms.len() == 1 {
-            game.make_move(game.offset_move(ms[0]));
-            return;
+            return ms[0];
         }
         let mut best = RelMove::Skip;
         for d in 1..=depth {
@@ -199,7 +198,7 @@ impl Bot {
                 }
             }
         }
-        game.make_move(game.offset_move(best));
+        game.offset_move(best)
     }
 
     // /// An estimate for the material value of each piece type.
@@ -399,7 +398,11 @@ impl Bot {
 
         // We don't have a principle variation yet,
         // so do normal negamax.
-        moves = game.moves();
+        moves = game
+            .moves()
+            .into_iter()
+            .map(|m| game.unoffset_move(m))
+            .collect();
         let mut value = Value::Loss;
         let mut best = 0;
         for (i, m) in moves.iter().enumerate() {
