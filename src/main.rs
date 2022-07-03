@@ -6,6 +6,7 @@ mod bot;
 mod game;
 mod hive;
 mod render;
+mod small_arrayvec;
 
 fn main() -> io::Result<()> {
     let mut game = Game::new();
