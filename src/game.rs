@@ -4,6 +4,7 @@ use enum_map::EnumMap;
 use rand::random;
 use std::collections::HashMap;
 use std::fmt;
+use std::iter;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -194,7 +195,7 @@ impl Game {
 
     pub fn unmake_move(&mut self, m: AbsMove) {
         let key = self.hash_key();
-        *self.reptable.entry(key).or_insert(0) -= 1;
+        *self.reptable.get_mut(&key).unwrap() -= 1;
         self.turn_counter -= 1;
         self.turn = self.turn.next();
         match m {
@@ -218,6 +219,84 @@ impl Game {
         self.current_reps = *self.reptable.get(&key).unwrap();
     }
 
+    fn find_structural(&self) -> PosMap<bool> {
+        if self.turn_counter < 2 {
+            // Within the first 2 ply, there are at most 2 pieces,
+            // so these are not structural.
+            return PosMap::default();
+        }
+
+        let mut artic_points = PosMap::default();
+
+        // There must be a white piece here as white starts at (0, 0)
+        // and cannot move this piece without placing their bee.
+        let start = self
+            .white_queen
+            .unwrap_or(AbsPos::from_pos(Pos { x: 0, y: 0 }));
+
+        self.find_structural_impl(
+            start,
+            None,
+            0,
+            &mut PosMap::default(),
+            &mut PosMap::default(),
+            &mut PosMap::default(),
+            &mut artic_points,
+        );
+
+        artic_points
+    }
+
+    // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
+    fn find_structural_impl(
+        &self,
+        pos: AbsPos,
+        parent: Option<AbsPos>,
+        d: u8,
+        depth: &mut PosMap<u8>,
+        low: &mut PosMap<u8>,
+        visited: &mut PosMap<bool>,
+        artic_points: &mut PosMap<bool>,
+    ) {
+        visited[pos] = true;
+        depth[pos] = d;
+        low[pos] = d;
+        let mut child_count = 0;
+        let mut is_articulation = false;
+
+        for dir in Dir::dirs() {
+            let new_pos = pos.go(dir);
+            if self.hive.is_free(new_pos) {
+                continue;
+            }
+            if !visited[new_pos] {
+                self.find_structural_impl(
+                    new_pos,
+                    Some(pos),
+                    d + 1,
+                    depth,
+                    low,
+                    visited,
+                    artic_points,
+                );
+                child_count += 1;
+                if low[new_pos] >= depth[pos] {
+                    is_articulation = true;
+                }
+                low[pos] = low[pos].min(low[new_pos]);
+            } else if parent.map_or(true, |p| p != new_pos) {
+                low[pos] = low[pos].min(depth[new_pos]);
+            }
+        }
+
+        if match parent {
+            Some(_) => is_articulation,
+            None => child_count > 1,
+        } {
+            artic_points[pos] = true;
+        }
+    }
+
     pub fn moves(&self) -> Vec<RelMove> {
         // Special cases:
         // ply 0:
@@ -233,13 +312,7 @@ impl Game {
         // When unplace or move from: add src if legal, check neighbours - remove supported same-colour, add blocked other-colour
 
         // Connectivity
-        // 	Connected undirected graph, find vertex cuts of cardinality 1
-        // 	Like a dynamic connectivity problem (but with changing vertices instead of edges)
-        //
-        // 	A vertex is structural iff it has multiple neighbour groups and is not in a cycle
-        //
-        // 	If a vertex has multiple neighbour groups, at least 1 of which is a structural separated neighbour, then it is also structural
-        // 	Note that A is a separated neighbour of B iff B is a separated neighbour of A
+        // Find all biconnected components. The structural pieces are the articulation vertices.
 
         // Moves
         // Initial moves: as usual
@@ -281,6 +354,7 @@ impl Game {
         let mut moves = if self.current_queen().is_none() {
             vec![]
         } else {
+            let struct_points = self.find_structural();
             self.hive
                 .tiles()
                 .filter_map(|(p, piece)| {
@@ -292,7 +366,7 @@ impl Game {
                 })
                 .flat_map(|(p, typ)| {
                     self.hive
-                        .destinations(p, typ)
+                        .destinations(&struct_points, p, typ)
                         .into_iter()
                         .map(move |d| RelMove::Move {
                             src: p.to_rel(offset),

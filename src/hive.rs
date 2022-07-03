@@ -4,11 +4,12 @@ use enum_map::Enum;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
 use std::num::ParseIntError;
+use std::ops::Index;
+use std::ops::IndexMut;
 use std::ops::{Add, Div, Sub};
 use std::str::FromStr;
 
@@ -278,7 +279,7 @@ impl AbsPos {
         ]
     }
 
-    fn go(self, d: Dir) -> AbsPos {
+    pub fn go(self, d: Dir) -> AbsPos {
         AbsPos(self.0.go(d))
     }
 
@@ -348,7 +349,7 @@ impl RelPos {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum Dir {
+pub enum Dir {
     Up,
     UpRight,
     DownRight,
@@ -358,7 +359,7 @@ enum Dir {
 }
 
 impl Dir {
-    const fn dirs() -> [Dir; 6] {
+    pub const fn dirs() -> [Dir; 6] {
         [
             Dir::Up,
             Dir::UpRight,
@@ -403,9 +404,54 @@ const BOARD_SIZE: usize = 23;
 // as this should benefit caching.
 #[derive(Debug, Clone)]
 pub struct Hive {
-    data: [[PieceStack; BOARD_SIZE]; BOARD_SIZE],
+    data: PosMap<PieceStack>,
     pub bl: AbsPos,
     pub tr: AbsPos,
+}
+
+#[derive(Debug, Clone)]
+pub struct PosMap<T>([[T; BOARD_SIZE]; BOARD_SIZE]);
+
+impl<T: Default> Default for PosMap<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<T> Index<AbsPos> for PosMap<T> {
+    type Output = T;
+
+    fn index(&self, index: AbsPos) -> &Self::Output {
+        self.get(index)
+    }
+}
+
+impl<T> IndexMut<AbsPos> for PosMap<T> {
+    fn index_mut(&mut self, index: AbsPos) -> &mut Self::Output {
+        self.get_mut(index)
+    }
+}
+
+impl<T> PosMap<T> {
+    fn get(&self, pos: AbsPos) -> &T {
+        &self.0[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+    }
+
+    fn get_mut(&mut self, pos: AbsPos) -> &mut T {
+        &mut self.0[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+    }
+
+    pub fn map<U>(self, f: impl Fn(T) -> U) -> PosMap<U> {
+        PosMap(self.0.map(|r| r.map(&f)))
+    }
+}
+
+impl<T: Copy> PosMap<T> {
+    fn with_default(val: T) -> Self {
+        Self([[val; BOARD_SIZE]; BOARD_SIZE])
+    }
 }
 
 impl Hive {
@@ -421,24 +467,14 @@ impl Hive {
         (self.tr.0 + self.bl.0) / 2
     }
 
-    fn get(&self, pos: AbsPos) -> &PieceStack {
-        &self.data[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-    }
-
-    fn get_mut(&mut self, pos: AbsPos) -> &mut PieceStack {
-        &mut self.data[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-    }
-
     pub fn push(&mut self, dst: AbsPos, piece: Piece) {
         self.bl = self.bl.min_pw(dst);
         self.tr = self.tr.max_pw(dst);
-        self.get_mut(dst).push(piece);
+        self.data[dst].push(piece);
     }
 
     pub fn pop(&mut self, src: AbsPos) -> Option<Piece> {
-        let s = self.get_mut(src);
+        let s = &mut self.data[src];
         if let Some(piece) = s.pop() {
             if s.is_empty() {
                 if src.0.x == self.bl.0.x {
@@ -564,21 +600,21 @@ impl Hive {
     pub fn tiles(&self) -> impl Iterator<Item = (AbsPos, &Piece)> {
         (self.bl.0.x..=self.tr.0.x)
             .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| AbsPos(Pos { x, y })))
-            .filter_map(move |p| self.get(p).last().map(|t| (p, t)))
+            .filter_map(move |p| self.data[p].last().map(|t| (p, t)))
     }
 
     pub fn all(&self) -> impl Iterator<Item = (AbsPos, usize, &Piece)> {
         (self.bl.0.x..=self.tr.0.x)
             .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| AbsPos(Pos { x, y })))
-            .flat_map(move |p| self.get(p).iter().enumerate().map(move |(h, v)| (p, h, v)))
+            .flat_map(move |p| self.data[p].iter().enumerate().map(move |(h, v)| (p, h, v)))
     }
 
     pub fn is_free(&self, p: AbsPos) -> bool {
-        self.get(p).is_empty()
+        self.data[p].is_empty()
     }
 
     fn count(&self, p: AbsPos) -> usize {
-        self.get(p).len()
+        self.data[p].len()
     }
 
     pub fn neighbours(&self, p: AbsPos, exclude: Option<AbsPos>) -> impl Iterator<Item = &Piece> {
@@ -588,15 +624,15 @@ impl Hive {
                     return None;
                 }
             }
-            self.get(p).last()
+            self.data[p].last()
         })
     }
 
     fn are_connected(&self, a: AbsPos, b: AbsPos, excluding: AbsPos) -> bool {
         // Performs an A* search using min_dist as the heuristic
         let mut heap = BinaryHeap::new();
-        let mut dists: HashMap<AbsPos, u32> = Default::default();
-        dists.insert(a, 0);
+        let mut dists = PosMap::with_default(u32::MAX);
+        dists[a] = 0;
         heap.push(CostItem {
             cost: a.min_dist(b),
             val: a,
@@ -607,7 +643,7 @@ impl Hive {
                 return true;
             }
 
-            if cost > *dists.get(&val).unwrap() + val.min_dist(b) {
+            if cost > dists[val] + val.min_dist(b) {
                 // A better path to this node has already been found
                 continue;
             }
@@ -617,17 +653,13 @@ impl Hive {
                 .into_iter()
                 .filter(|&p| !self.is_free(p) && p != excluding)
             {
-                let dist = *dists.get(&val).unwrap() + 1;
-                let should_push = match dists.get(&p) {
-                    None => true,
-                    Some(d) => dist < *d,
-                };
-                if should_push {
+                let dist = dists[val] + 1;
+                if dist < dists[p] {
                     heap.push(CostItem {
                         cost: dist + p.min_dist(b),
                         val: p,
                     });
-                    dists.insert(p, dist);
+                    dists[p] = dist;
                 }
             }
         }
@@ -638,15 +670,18 @@ impl Hive {
         if self.count(p) > 1 {
             return false;
         }
+        // find representatives of each group of neighbours.
         let mut ns = p.neighbours().to_vec();
         ns.dedup_by_key(|n| self.is_free(*n));
         if self.is_free(*ns.first().unwrap()) == self.is_free(*ns.last().unwrap()) {
             ns.pop();
         }
         ns.retain(|n| !self.is_free(*n));
+
         if ns.len() <= 1 {
             return false;
         }
+
         let n1 = ns.pop().unwrap();
         for ni in ns {
             if !self.are_connected(n1, ni, p) {
@@ -656,8 +691,13 @@ impl Hive {
         false
     }
 
-    pub fn destinations(&self, p: AbsPos, typ: PieceType) -> Vec<AbsPos> {
-        if self.is_structural(p) {
+    pub fn destinations(
+        &self,
+        struct_points: &PosMap<bool>,
+        p: AbsPos,
+        typ: PieceType,
+    ) -> Vec<AbsPos> {
+        if self.count(p) == 1 && struct_points[p] {
             return vec![];
         }
         match typ {
