@@ -1,10 +1,10 @@
 use crate::render::*;
 use crate::small_arrayvec::SmallArrayVec;
+use ahash::AHashSet;
 use enum_map::Enum;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
-use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fmt;
 use std::num::ParseIntError;
@@ -691,126 +691,139 @@ impl Hive {
         false
     }
 
+    fn queen_dests(&self, p: AbsPos) -> Vec<AbsPos> {
+        let ns = p.neighbours();
+        let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
+        let mut out = Vec::new();
+        for d in 0..6 {
+            if surrounding[d]
+                && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
+                && self.neighbours(ns[d], Some(p)).next().is_some()
+            {
+                out.push(ns[d]);
+            }
+        }
+        out
+    }
+
+    fn beetle_dests(&self, p: AbsPos) -> Vec<AbsPos> {
+        let ns = p.neighbours();
+        let surrounding: Vec<usize> = ns.into_iter().map(|p| self.count(p)).collect();
+        let src_height = self.count(p) - 1;
+        let mut out = Vec::new();
+        for d in 0..6 {
+            if surrounding[d].max(src_height)
+                >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
+                && (src_height > 0 || self.neighbours(ns[d], Some(p)).next().is_some())
+            {
+                out.push(ns[d]);
+            }
+        }
+        out
+    }
+
+    fn hopper_dests(&self, p: AbsPos) -> Vec<AbsPos> {
+        Dir::dirs()
+            .into_iter()
+            .filter_map(|d| {
+                let mut pos = p.go(d);
+                if self.is_free(pos) {
+                    return None;
+                }
+                pos = pos.go(d);
+                while !self.is_free(pos) {
+                    pos = pos.go(d);
+                }
+                Some(pos)
+            })
+            .collect()
+    }
+
+    fn ant_dests(&self, p: AbsPos) -> Vec<AbsPos> {
+        // TODO optimize / cache
+        let mut visited = AHashSet::new();
+        let mut to_consider = VecDeque::new();
+        visited.insert(p);
+        to_consider.push_back(p);
+        while let Some(pos) = to_consider.pop_front() {
+            let ns = pos.neighbours();
+            let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
+            for d in 0..6 {
+                if !visited.contains(&ns[d])
+                    && surrounding[d]
+                    && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
+                    && self.neighbours(ns[d], Some(p)).next().is_some()
+                {
+                    visited.insert(ns[d]);
+                    to_consider.push_back(ns[d]);
+                }
+            }
+        }
+        visited.into_iter().filter(|&pos| pos != p).collect()
+    }
+
+    fn spider_dests(&self, p: AbsPos) -> Vec<AbsPos> {
+        let mut reach_1 = AHashSet::new();
+        let mut reach_2 = AHashSet::new();
+        let mut reach_3 = AHashSet::new();
+        let ns = p.neighbours();
+        let surrounding: Vec<bool> = ns.into_iter().map(|pos| self.is_free(pos)).collect();
+        for d in 0..6 {
+            if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
+                reach_1.insert(ns[d]);
+            }
+        }
+        for pos in reach_1.iter() {
+            let ns = pos.neighbours();
+            let surrounding: Vec<bool> = ns
+                .iter()
+                .map(|&pos| if pos == p { true } else { self.is_free(pos) })
+                .collect();
+            for d in 0..6 {
+                if ns[d] != p
+                    && !reach_1.contains(&ns[d])
+                    && surrounding[d]
+                    && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6])
+                {
+                    reach_2.insert(ns[d]);
+                }
+            }
+        }
+        for pos in reach_2.iter() {
+            let ns = pos.neighbours();
+            let surrounding: Vec<bool> = ns
+                .iter()
+                .map(|&pos| if pos == p { true } else { self.is_free(pos) })
+                .collect();
+            for d in 0..6 {
+                if ns[d] != p
+                    && !reach_1.contains(&ns[d])
+                    && !reach_2.contains(&ns[d])
+                    && surrounding[d]
+                    && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6])
+                {
+                    reach_3.insert(ns[d]);
+                }
+            }
+        }
+        reach_3.into_iter().collect()
+    }
+
     pub fn destinations(
         &self,
         struct_points: &PosMap<bool>,
         p: AbsPos,
         typ: PieceType,
     ) -> Vec<AbsPos> {
-        if self.count(p) == 1 && struct_points[p] {
+        if struct_points[p] && self.count(p) == 1 {
             return vec![];
         }
         match typ {
-            PieceType::Queen => {
-                let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
-                let mut out = Vec::new();
-                for d in 0..6 {
-                    if surrounding[d]
-                        && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                        && self.neighbours(ns[d], Some(p)).next().is_some()
-                    {
-                        out.push(ns[d]);
-                    }
-                }
-                out
-            }
-            PieceType::Beetle => {
-                let ns = p.neighbours();
-                let surrounding: Vec<usize> = ns.into_iter().map(|p| self.count(p)).collect();
-                let src_height = self.count(p) - 1;
-                let mut out = Vec::new();
-                for d in 0..6 {
-                    if surrounding[d].max(src_height)
-                        >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
-                        && (src_height > 0 || self.neighbours(ns[d], Some(p)).next().is_some())
-                    {
-                        out.push(ns[d]);
-                    }
-                }
-                out
-            }
-            PieceType::Hopper => Dir::dirs()
-                .into_iter()
-                .filter_map(|d| {
-                    let mut pos = p.go(d);
-                    if self.is_free(pos) {
-                        return None;
-                    }
-                    pos = pos.go(d);
-                    while !self.is_free(pos) {
-                        pos = pos.go(d);
-                    }
-                    Some(pos)
-                })
-                .collect(),
-            PieceType::Ant => {
-                let mut visited = HashSet::new();
-                let mut to_consider = VecDeque::new();
-                visited.insert(p);
-                to_consider.push_back(p);
-                while let Some(pos) = to_consider.pop_front() {
-                    let ns = pos.neighbours();
-                    let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
-                    for d in 0..6 {
-                        if !visited.contains(&ns[d])
-                            && surrounding[d]
-                            && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                            && self.neighbours(ns[d], Some(p)).next().is_some()
-                        {
-                            visited.insert(ns[d]);
-                            to_consider.push_back(ns[d]);
-                        }
-                    }
-                }
-                visited.into_iter().filter(|&pos| pos != p).collect()
-            }
-            PieceType::Spider => {
-                let mut reach_1 = HashSet::new();
-                let mut reach_2 = HashSet::new();
-                let mut reach_3 = HashSet::new();
-                let ns = p.neighbours();
-                let surrounding: Vec<bool> = ns.into_iter().map(|pos| self.is_free(pos)).collect();
-                for d in 0..6 {
-                    if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
-                        reach_1.insert(ns[d]);
-                    }
-                }
-                for pos in reach_1.iter() {
-                    let ns = pos.neighbours();
-                    let surrounding: Vec<bool> = ns
-                        .iter()
-                        .map(|&pos| if pos == p { true } else { self.is_free(pos) })
-                        .collect();
-                    for d in 0..6 {
-                        if ns[d] != p
-                            && !reach_1.contains(&ns[d])
-                            && surrounding[d]
-                            && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6])
-                        {
-                            reach_2.insert(ns[d]);
-                        }
-                    }
-                }
-                for pos in reach_2.iter() {
-                    let ns = pos.neighbours();
-                    let surrounding: Vec<bool> = ns
-                        .iter()
-                        .map(|&pos| if pos == p { true } else { self.is_free(pos) })
-                        .collect();
-                    for d in 0..6 {
-                        if ns[d] != p
-                            && !reach_1.contains(&ns[d])
-                            && !reach_2.contains(&ns[d])
-                            && surrounding[d]
-                            && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6])
-                        {
-                            reach_3.insert(ns[d]);
-                        }
-                    }
-                }
-                reach_3.into_iter().collect()
-            }
+            PieceType::Queen => self.queen_dests(p),
+            PieceType::Beetle => self.beetle_dests(p),
+            PieceType::Hopper => self.hopper_dests(p),
+            PieceType::Ant => self.ant_dests(p),
+            PieceType::Spider => self.spider_dests(p),
         }
     }
 }

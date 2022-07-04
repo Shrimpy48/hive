@@ -1,10 +1,9 @@
 use crate::hive::*;
 use crate::render::*;
+use ahash::AHashMap;
 use enum_map::EnumMap;
 use rand::random;
-use std::collections::HashMap;
 use std::fmt;
-use std::iter;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
@@ -103,7 +102,7 @@ pub enum Outcome {
 }
 
 struct ZobristTable {
-    data: HashMap<(RelPos, usize, Piece), u64>,
+    data: AHashMap<(RelPos, usize, Piece), u64>,
     turn_num: [u64; 9],
     turn: [u64; 2],
     rep_num: [u64; 5],
@@ -133,7 +132,7 @@ pub struct Game {
     pub white_queen: Option<AbsPos>,
     pub black_queen: Option<AbsPos>,
     ztable: ZobristTable,
-    reptable: HashMap<u64, u8>,
+    reptable: AHashMap<u64, u8>,
     current_reps: u8,
 }
 
@@ -413,11 +412,11 @@ impl Game {
             white_queen: None,
             black_queen: None,
             ztable: ZobristTable::new(),
-            reptable: HashMap::new(),
+            reptable: AHashMap::new(),
             current_reps: 1,
         };
         let key = game.hash_key();
-        let mut reptable = HashMap::new();
+        let mut reptable = AHashMap::new();
         reptable.insert(key, 1);
         game.reptable = reptable;
         game
