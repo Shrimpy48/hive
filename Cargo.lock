@@ -14,16 +14,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bot"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "enum-map",
- "num_enum",
- "rand",
-]
-
-[[package]]
 name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -61,6 +51,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hive"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "enum-map",
+ "num_enum",
+ "rand",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -89,9 +89,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.12.1"
+version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac8b1a9b2518dc799a2271eff1688707eb315f0d4697aa6b0871369ca4c4da55"
+checksum = "074864da206b4973b84eb91683020dbefd6a8c3f0f38e054d93954e891935e4e"
 
 [[package]]
 name = "ppv-lite86"
@@ -165,9 +165,9 @@ checksum = "1578c6245786b9d168c5447eeacfb96856573ca56c9d68fdcf394be134882a47"
 
 [[package]]
 name = "syn"
-version = "1.0.98"
+version = "1.0.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c50aef8a904de4c23c788f104b7dddc7d6f79c647c7c8ce4cc8f73eb0ca773dd"
+checksum = "58dbef6ec655055e20b86b15a8cc6d439cca19b667537ac6a1369572d151ab13"
 dependencies = [
  "proc-macro2",
  "quote",

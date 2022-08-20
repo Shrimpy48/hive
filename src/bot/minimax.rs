@@ -183,18 +183,18 @@ impl Bot {
             best = m;
             match v {
                 Value::Win => {
-                    // println!("+M{}", (d + 1) / 2);
+                    eprintln!("+M{}", (d + 1) / 2);
                     break;
                 }
                 Value::Loss => {
-                    // println!("-M{}", (d + 1) / 2);
+                    eprintln!("-M{}", (d + 1) / 2);
                     break;
                 }
                 Value::Value(0) => {
-                    // println!("0");
+                    eprintln!("0");
                 }
                 Value::Value(x) => {
-                    // println!("{:+}", x);
+                    eprintln!("{:+}", x);
                 }
             }
         }

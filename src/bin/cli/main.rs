@@ -1,12 +1,7 @@
-use crate::bot::*;
-use crate::game::*;
+use hive::bot::*;
+use hive::game::*;
 use std::io;
 use std::time::{Duration, Instant};
-mod bot;
-mod game;
-mod hive;
-mod render;
-mod small_arrayvec;
 
 fn main() -> io::Result<()> {
     let mut game = Game::new();

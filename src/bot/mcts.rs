@@ -140,7 +140,7 @@ impl Bot {
                 self.search_step();
             }
             if Instant::now() >= deadline {
-                println!("Performed {} iterations", self.subtree.borrow().simulations);
+                eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
                 return self.best_move();
             }
         }
@@ -245,7 +245,7 @@ impl Bot {
             })
             .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(c, v)| {
-                println!("LCB: {:.1}%", v * 100.0);
+                eprintln!("LCB: {:.1}%", v * 100.0);
                 c
             })
             .unwrap_or_else(|| panic!("no search tree"))
