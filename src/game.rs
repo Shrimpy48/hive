@@ -50,46 +50,46 @@ impl Hand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AbsMove {
-    Place { piece: PieceType, dst: AbsPos },
-    Move { src: AbsPos, dst: AbsPos },
+pub enum Move {
+    Place { piece: PieceType, dst: Pos },
+    Move { src: Pos, dst: Pos },
     Skip,
 }
 
-impl fmt::Display for AbsMove {
+impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AbsMove::Place { piece, dst } => write!(f, "{} -> {}", piece, dst),
-            AbsMove::Move { src, dst } => write!(f, "{} -> {}", src, dst),
-            AbsMove::Skip => write!(f, "-"),
+            Move::Place { piece, dst } => write!(f, "{} -> {}", piece, dst),
+            Move::Move { src, dst } => write!(f, "{} -> {}", src, dst),
+            Move::Skip => write!(f, "-"),
         }
     }
 }
 
-impl FromStr for AbsMove {
+impl FromStr for Move {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<&str> = s.split("->").collect();
 
         if parts.len() != 2 {
-            return Ok(AbsMove::Skip);
+            return Ok(Move::Skip);
         }
 
-        let dst = parts[1].parse::<AbsPos>()?;
+        let dst = parts[1].parse::<Pos>()?;
 
         if let Ok(piece) = parts[0].parse::<PieceType>() {
-            return Ok(AbsMove::Place { piece, dst });
+            return Ok(Move::Place { piece, dst });
         }
 
-        let src = parts[0].parse::<AbsPos>()?;
+        let src = parts[0].parse::<Pos>()?;
 
-        Ok(AbsMove::Move { src, dst })
+        Ok(Move::Move { src, dst })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelMove {
+pub(crate) enum RelMove {
     Place { piece: PieceType, dst: RelPos },
     Move { src: RelPos, dst: RelPos },
     Skip,
@@ -124,66 +124,120 @@ impl ZobristTable {
 }
 
 pub struct Game {
-    pub hive: Hive,
+    hive: Hive,
     white_hand: Hand,
     black_hand: Hand,
-    pub turn: Colour,
+    turn: Colour,
     turn_counter: u32,
-    pub white_queen: Option<AbsPos>,
-    pub black_queen: Option<AbsPos>,
+    white_queen: Option<Pos>,
+    black_queen: Option<Pos>,
     ztable: ZobristTable,
     reptable: AHashMap<u64, u8>,
     current_reps: u8,
 }
 
 impl Game {
-    pub fn offset_move(&self, m: RelMove) -> AbsMove {
+    pub(crate) fn offset_move(&self, m: RelMove) -> Move {
         let offset = self.hive.offset();
         match m {
-            RelMove::Place { piece, dst } => AbsMove::Place {
+            RelMove::Place { piece, dst } => Move::Place {
                 piece,
                 dst: dst.to_abs(offset),
             },
-            RelMove::Move { src, dst } => AbsMove::Move {
+            RelMove::Move { src, dst } => Move::Move {
                 src: src.to_abs(offset),
                 dst: dst.to_abs(offset),
             },
-            RelMove::Skip => AbsMove::Skip,
+            RelMove::Skip => Move::Skip,
         }
     }
 
-    pub fn unoffset_move(&self, m: AbsMove) -> RelMove {
+    pub(crate) fn unoffset_move(&self, m: Move) -> RelMove {
         let offset = self.hive.offset();
         match m {
-            AbsMove::Place { piece, dst } => RelMove::Place {
+            Move::Place { piece, dst } => RelMove::Place {
                 piece,
                 dst: dst.to_rel(offset),
             },
-            AbsMove::Move { src, dst } => RelMove::Move {
+            Move::Move { src, dst } => RelMove::Move {
                 src: src.to_rel(offset),
                 dst: dst.to_rel(offset),
             },
-            AbsMove::Skip => RelMove::Skip,
+            Move::Skip => RelMove::Skip,
         }
     }
 
-    pub fn make_move(&mut self, m: AbsMove) {
+    pub fn hive(&self) -> &Hive {
+        &self.hive
+    }
+
+    pub fn turn(&self) -> Colour {
+        self.turn
+    }
+
+    pub(crate) fn white_queen(&self) -> Option<Pos> {
+        self.white_queen
+    }
+
+    pub(crate) fn black_queen(&self) -> Option<Pos> {
+        self.black_queen
+    }
+
+    pub fn is_legal_move(&self, m: Move) -> bool {
+        // TODO optimise
+        self.moves().contains(&m)
+    }
+
+    pub fn is_legal_unmove(&self, m: Move) -> bool {
+        // FIXME implement
+        true
+    }
+
+    pub fn make_move(&mut self, m: Move) -> Option<()> {
+        if self.is_legal_move(m) {
+            self.make_move_impl(m);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn unmake_move(&mut self, m: Move) -> Option<()> {
+        if self.is_legal_unmove(m) {
+            self.unmake_move_impl(m);
+            Some(())
+        } else {
+            None
+        }
+    }
+
+    pub fn make_move_unchecked(&mut self, m: Move) {
+        debug_assert!(self.is_legal_move(m));
+        self.make_move_impl(m);
+    }
+
+    pub fn unmake_move_unchecked(&mut self, m: Move) {
+        debug_assert!(self.is_legal_unmove(m));
+        self.unmake_move_impl(m);
+    }
+
+    fn make_move_impl(&mut self, m: Move) {
         match m {
-            AbsMove::Place { piece, dst } => {
+            Move::Place { piece, dst } => {
                 self.current_hand_mut().remove(piece);
                 self.hive.push(dst, Piece::new(piece, self.turn));
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
             }
-            AbsMove::Move { src, dst } => {
+            Move::Move { src, dst } => {
                 let piece = self.hive.pop(src).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
                 self.hive.push(dst, piece);
             }
-            AbsMove::Skip => {}
+            Move::Skip => {}
         }
         self.turn = self.turn.next();
         self.turn_counter += 1;
@@ -192,27 +246,27 @@ impl Game {
         self.current_reps = *self.reptable.get(&key).unwrap();
     }
 
-    pub fn unmake_move(&mut self, m: AbsMove) {
+    fn unmake_move_impl(&mut self, m: Move) {
         let key = self.hash_key();
         *self.reptable.get_mut(&key).unwrap() -= 1;
         self.turn_counter -= 1;
         self.turn = self.turn.next();
         match m {
-            AbsMove::Place { piece, dst } => {
+            Move::Place { piece, dst } => {
                 self.hive.pop(dst).unwrap();
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = None;
                 }
                 self.current_hand_mut().add(piece);
             }
-            AbsMove::Move { src, dst } => {
+            Move::Move { src, dst } => {
                 let piece = self.hive.pop(dst).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(src);
                 }
                 self.hive.push(src, piece);
             }
-            AbsMove::Skip => {}
+            Move::Skip => {}
         }
         let key = self.hash_key();
         self.current_reps = *self.reptable.get(&key).unwrap();
@@ -231,7 +285,7 @@ impl Game {
         // and cannot move this piece without placing their bee.
         let start = self
             .white_queen
-            .unwrap_or(AbsPos::from_pos(Pos { x: 0, y: 0 }));
+            .unwrap_or(Pos::from_raw_pos(RawPos { x: 0, y: 0 }));
 
         self.find_structural_impl(
             start,
@@ -249,8 +303,8 @@ impl Game {
     // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
     fn find_structural_impl(
         &self,
-        pos: AbsPos,
-        parent: Option<AbsPos>,
+        pos: Pos,
+        parent: Option<Pos>,
         d: u8,
         depth: &mut PosMap<u8>,
         low: &mut PosMap<u8>,
@@ -296,7 +350,7 @@ impl Game {
         }
     }
 
-    pub fn moves(&self) -> Vec<AbsMove> {
+    pub(crate) fn moves(&self) -> Vec<Move> {
         // Special cases:
         // ply 0:
         // 	place (0,0)
@@ -327,10 +381,10 @@ impl Game {
             self.current_hand().pieces().collect()
         };
         let places = if self.turn_counter == 0 {
-            vec![AbsPos::from_pos(Pos { x: 0, y: 0 })]
+            vec![Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
         } else if self.turn_counter == 1 {
             // neighbours(Pos { x: 0, y: 0 }).to_vec()
-            vec![AbsPos::from_pos(Pos { x: 0, y: 1 })]
+            vec![Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
         } else {
             self.hive
                 .occupied()
@@ -346,7 +400,7 @@ impl Game {
         let placings = places.into_iter().flat_map(|l| {
             placeable
                 .iter()
-                .map(move |p| AbsMove::Place { piece: *p, dst: l })
+                .map(move |p| Move::Place { piece: *p, dst: l })
         });
         let mut moves = if self.current_queen().is_none() {
             vec![]
@@ -365,13 +419,13 @@ impl Game {
                     self.hive
                         .destinations(&struct_points, p, typ)
                         .into_iter()
-                        .map(move |d| AbsMove::Move { src: p, dst: d })
+                        .map(move |d| Move::Move { src: p, dst: d })
                 })
                 .collect()
         };
         moves.extend(placings);
         if moves.is_empty() {
-            moves.push(AbsMove::Skip);
+            moves.push(Move::Skip);
         }
         moves
     }
@@ -429,7 +483,7 @@ impl Game {
         }
     }
 
-    fn current_queen_mut(&mut self) -> &mut Option<AbsPos> {
+    fn current_queen_mut(&mut self) -> &mut Option<Pos> {
         match self.turn {
             Colour::White => &mut self.white_queen,
             Colour::Black => &mut self.black_queen,
@@ -443,7 +497,7 @@ impl Game {
         }
     }
 
-    fn current_queen(&self) -> &Option<AbsPos> {
+    fn current_queen(&self) -> &Option<Pos> {
         match self.turn {
             Colour::White => &self.white_queen,
             Colour::Black => &self.black_queen,
@@ -468,7 +522,7 @@ impl Game {
         })
     }
 
-    pub fn table_key(&mut self) -> u64 {
+    pub(crate) fn table_key(&mut self) -> u64 {
         let rep_hash = self.ztable.rep_num[(self.current_reps - 1) as usize];
         rep_hash ^ self.hash_key()
     }
@@ -539,5 +593,11 @@ impl fmt::Display for Game {
             }
         }
         write!(f, "{}", self.white_hand)
+    }
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
     }
 }

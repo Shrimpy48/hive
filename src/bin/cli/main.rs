@@ -1,18 +1,17 @@
-use hive::bot::*;
-use hive::game::*;
+use hive::*;
 use std::io;
 use std::time::{Duration, Instant};
 
 fn main() -> io::Result<()> {
     let mut game = Game::new();
-    let mut mini = minimax::Bot::new(2_000_000);
-    let mut monty = mcts::Bot::new();
+    let mut mini = bot::minimax::Bot::new(2_000_000);
+    let mut monty = bot::mcts::Bot::new();
     println!("{}", game);
 
     // Agent vs agent, with each agent either choosing the best move or a random move.
     loop {
         let m = mini.best_move(&mut game, 5);
-        game.make_move(m);
+        game.make_move_unchecked(m);
         monty.discard_others(m);
         println!("{}\n{}", m, game);
 
@@ -21,7 +20,7 @@ fn main() -> io::Result<()> {
         }
 
         let m = monty.mcts(Instant::now() + Duration::from_secs(10));
-        game.make_move(m);
+        game.make_move_unchecked(m);
         monty.discard_others(m);
         println!("{}\n{}", m, game);
 
@@ -43,8 +42,7 @@ fn main() -> io::Result<()> {
     //         io::stdin().read_line(&mut buffer)?;
     //         match buffer.parse::<AbsMove>() {
     //             Ok(m) => {
-    //                 if game.moves().contains(&m) {
-    //                     game.make_move(m);
+    //                 if game.make_move(m).is_some() {
     //                     break;
     //                 }
     //                 println!("Illegal move");

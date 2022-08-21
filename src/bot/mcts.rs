@@ -8,7 +8,7 @@ use std::f64::consts::LN_2;
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
-use crate::game::{AbsMove, Game, Outcome};
+use crate::game::{Move, Game, Outcome};
 
 const EXPLORE_C: f64 = 1.0;
 const BATCH_SIZE: u32 = 1;
@@ -19,9 +19,9 @@ const BATCH_SIZE: u32 = 1;
 struct SearchNode {
     simulations: u64,
     wins: u64,
-    parent: Option<(AbsMove, Weak<RefCell<SearchNode>>)>,
-    children: HashMap<AbsMove, Rc<RefCell<SearchNode>>>,
-    unexpanded: Vec<AbsMove>,
+    parent: Option<(Move, Weak<RefCell<SearchNode>>)>,
+    children: HashMap<Move, Rc<RefCell<SearchNode>>>,
+    unexpanded: Vec<Move>,
 }
 
 impl SearchNode {
@@ -65,10 +65,10 @@ impl SearchNode {
     }
 
     /// Create a new child of this SearchNode.
-    fn after_move(this: Rc<RefCell<Self>>, game: &mut Game, made: AbsMove) -> Rc<RefCell<Self>> {
+    fn after_move(this: Rc<RefCell<Self>>, game: &mut Game, made: Move) -> Rc<RefCell<Self>> {
         let out;
         {
-            game.make_move(made);
+            game.make_move_unchecked(made);
             let unexpanded = game.moves();
             out = Rc::new(RefCell::new(Self {
                 children: Default::default(),
@@ -119,11 +119,11 @@ impl Bot {
         }
     }
 
-    pub fn discard_others(&mut self, made: AbsMove) {
+    pub fn discard_others(&mut self, made: Move) {
         // Making sure that the borrow is dropped before after_move is called
         let new_subtree = self.subtree.borrow().children.get(&made).map(Rc::clone);
         if let Some(node) = new_subtree {
-            self.game.make_move(made);
+            self.game.make_move_unchecked(made);
             node.borrow_mut().parent = None;
             self.subtree = node;
             return;
@@ -134,7 +134,7 @@ impl Bot {
         self.subtree = new_subtree;
     }
 
-    pub fn mcts(&mut self, deadline: Instant) -> AbsMove {
+    pub fn mcts(&mut self, deadline: Instant) -> Move {
         loop {
             for _ in 0..BATCH_SIZE {
                 self.search_step();
@@ -181,7 +181,7 @@ impl Bot {
         match best {
             None => SelectRes::Terminal(node),
             Some((m, best_child)) => {
-                self.game.make_move(m);
+                self.game.make_move_unchecked(m);
                 self.select(Rc::clone(&best_child))
             }
         }
@@ -204,12 +204,12 @@ impl Bot {
                 .moves()
                 .choose(&mut self.rng)
                 .expect("no moves to make");
-            self.game.make_move(m);
+            self.game.make_move_unchecked(m);
             moves.push(m);
         }
         let out = self.game.result();
         for m in moves.into_iter().rev() {
-            self.game.unmake_move(m);
+            self.game.unmake_move_unchecked(m);
         }
         out
     }
@@ -220,19 +220,19 @@ impl Bot {
             let mut n_mut = n.borrow_mut();
             n_mut.simulations += 1;
             if let Outcome::Win(player) = result {
-                if self.game.turn != player {
+                if self.game.turn() != player {
                     n_mut.wins += 1;
                 }
             }
             current = n_mut.parent.as_ref().map(|(m, w)| {
-                self.game.unmake_move(*m);
+                self.game.unmake_move_unchecked(*m);
                 w.upgrade().expect("parent freed before child")
             });
         }
     }
 
     /// Panics if no search has been performed
-    fn best_move(&self) -> AbsMove {
+    fn best_move(&self) -> Move {
         *self
             .subtree
             .borrow()
@@ -249,5 +249,11 @@ impl Bot {
                 c
             })
             .unwrap_or_else(|| panic!("no search tree"))
+    }
+}
+
+impl Default for Bot {
+    fn default() -> Self {
+        Self::new()
     }
 }

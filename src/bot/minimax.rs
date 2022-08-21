@@ -172,7 +172,7 @@ impl Bot {
     ///
     /// Will stop once a guaranteed win/loss is found
     /// or the given depth limit is reached.
-    pub fn best_move(&mut self, game: &mut Game, depth: u8) -> AbsMove {
+    pub fn best_move(&mut self, game: &mut Game, depth: u8) -> Move {
         let ms = game.moves();
         if ms.len() == 1 {
             return ms[0];
@@ -227,22 +227,22 @@ impl Bot {
             Outcome::Draw => Value::Value(0),
             Outcome::Ongoing => {
                 // The number of white and black pieces around the white queen.
-                let (white_wnc, white_bnc) = match game.white_queen {
+                let (white_wnc, white_bnc) = match game.white_queen() {
                     None => (0, 0),
                     Some(pos) => {
                         let (wn, bn): (Vec<&Piece>, Vec<&Piece>) = game
-                            .hive
+                            .hive()
                             .neighbours(pos, None)
                             .partition(|n| n.col() == Colour::White);
                         (wn.len() as i32, bn.len() as i32)
                     }
                 };
                 // The number of white and black pieces around the black queen.
-                let (black_wnc, black_bnc) = match game.black_queen {
+                let (black_wnc, black_bnc) = match game.black_queen() {
                     None => (0, 0),
                     Some(pos) => {
                         let (wn, bn): (Vec<&Piece>, Vec<&Piece>) = game
-                            .hive
+                            .hive()
                             .neighbours(pos, None)
                             .partition(|n| n.col() == Colour::White);
                         (wn.len() as i32, bn.len() as i32)
@@ -290,7 +290,7 @@ impl Bot {
                 return Value::Value(white_val - black_val);
             }
         };
-        match game.turn {
+        match game.turn() {
             Colour::White => res,
             Colour::Black => -res,
         }
@@ -339,16 +339,16 @@ impl Bot {
             let pv = moves[0];
             let mut best = 0;
             let m_ = game.offset_move(pv);
-            game.make_move(m_);
+            game.make_move_unchecked(m_);
             let mut value = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move(m_);
+            game.unmake_move_unchecked(m_);
             a = a.max(value);
 
             if a < b {
                 // Search the remaining moves to see if they exceed the bound.
                 for (i, m) in moves[1..].iter().enumerate() {
                     let m_ = game.offset_move(*m);
-                    game.make_move(m_);
+                    game.make_move_unchecked(m_);
                     let mut val;
                     if let Value::Value(a_) = a {
                         // Search with a null window at first.
@@ -362,7 +362,7 @@ impl Bot {
                         // We have no good bound yet, so we have to do a full search.
                         val = -self.val(game, depth - 1, -b, -a);
                     }
-                    game.unmake_move(m_);
+                    game.unmake_move_unchecked(m_);
                     if value < val {
                         value = val;
                         best = i + 1;
@@ -407,9 +407,9 @@ impl Bot {
         let mut best = 0;
         for (i, m) in moves.iter().enumerate() {
             let m_ = game.offset_move(*m);
-            game.make_move(m_);
+            game.make_move_unchecked(m_);
             let val = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move(m_);
+            game.unmake_move_unchecked(m_);
             if value < val {
                 value = val;
                 best = i;

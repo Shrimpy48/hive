@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::ptr;
 
-pub struct SmallArrayVec<T, const CAP: usize> {
+pub(crate) struct SmallArrayVec<T, const CAP: usize> {
     buf: [MaybeUninit<T>; CAP],
     len: u8,
 }
@@ -63,7 +63,7 @@ impl<T, const CAP: usize> Default for SmallArrayVec<T, CAP> {
 }
 
 impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             // SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
             buf: unsafe { MaybeUninit::uninit().assume_init() },
@@ -71,26 +71,26 @@ impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
         }
     }
 
-    pub fn as_ptr(&self) -> *const T {
+    pub(crate) fn as_ptr(&self) -> *const T {
         // We shadow the slice method of the same name to avoid going through
         // `deref`, which creates an intermediate reference.
         self.buf.as_ptr() as *const T
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut T {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut T {
         // We shadow the slice method of the same name to avoid going through
         // `deref`, which creates an intermediate reference.
         self.buf.as_mut_ptr() as *mut T
     }
 
-    pub fn push(&mut self, elem: T) {
+    pub(crate) fn push(&mut self, elem: T) {
         assert!(self.len < u8::MAX);
         let pos = self.len as usize;
         self.buf[pos].write(elem);
         self.len += 1;
     }
 
-    pub fn pop(&mut self) -> Option<T> {
+    pub(crate) fn pop(&mut self) -> Option<T> {
         match self.len.checked_sub(1) {
             None => None,
             Some(new_len) => {
@@ -100,7 +100,7 @@ impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
         }
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         let elems: *mut [T] = self.as_mut_slice();
 
         // SAFETY:
@@ -115,7 +115,7 @@ impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
         }
     }
 
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
+    pub(crate) fn as_mut_slice(&mut self) -> &mut [T] {
         self
     }
 }
