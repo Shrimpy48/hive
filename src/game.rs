@@ -1,32 +1,30 @@
 use crate::hive::*;
 use crate::render::*;
 use ahash::AHashMap;
-use enum_map::EnumMap;
+use enum_map::{enum_map, EnumMap};
 use rand::random;
 use std::fmt;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
 #[derive(Debug)]
-struct Hand {
+pub struct Hand {
     data: EnumMap<PieceType, u8>,
 }
 
 impl Hand {
     fn new() -> Hand {
         Hand {
-            data: vec![
-                (PieceType::Queen, 1),
-                (PieceType::Beetle, 2),
-                (PieceType::Hopper, 3),
-                (PieceType::Spider, 2),
-                (PieceType::Ant, 3),
-                // (PieceType::Ladybug, 1),
-                // (PieceType::Mosquito, 1),
-                // (PieceType::Pillbug, 1),
-            ]
-            .into_iter()
-            .collect(),
+            data: enum_map! {
+                PieceType::Queen => 1,
+                PieceType::Beetle => 2,
+                PieceType::Hopper => 3,
+                PieceType::Spider => 2,
+                PieceType::Ant => 3,
+                // PieceType::Ladybug => 1,
+                // PieceType::Mosquito => 1,
+                // PieceType::Pillbug => 1,
+            },
         }
     }
 
@@ -44,8 +42,12 @@ impl Hand {
         self.data[piece] += 1;
     }
 
-    fn pieces(&self) -> impl Iterator<Item = PieceType> + '_ {
+    pub fn pieces(&self) -> impl Iterator<Item = PieceType> + '_ {
         self.data.iter().filter_map(|(p, &n)| (n > 0).then_some(p))
+    }
+
+    fn count(&self, piece: PieceType) -> u8 {
+        self.data[piece]
     }
 }
 
@@ -183,18 +185,77 @@ impl Game {
         self.black_queen
     }
 
-    pub fn is_legal_move(&self, m: Move) -> bool {
-        // TODO optimise
-        self.moves().contains(&m)
+    pub fn is_legal(&self, m: Move) -> bool {
+        if self.over() {
+            return false;
+        }
+        match m {
+            Move::Place { piece, dst } => {
+                if self.current_queen().is_none()
+                    && self.turn_counter >= 6
+                    && piece != PieceType::Queen
+                {
+                    return false;
+                }
+                if self.current_hand().count(piece) == 0 {
+                    return false;
+                }
+                if self.turn_counter == 0 {
+                    return dst == Pos::from_raw_pos(RawPos { x: 0, y: 0 });
+                }
+                if self.turn_counter == 1 {
+                    return dst == Pos::from_raw_pos(RawPos { x: 0, y: 1 });
+                }
+                if !self.hive.is_free(dst) {
+                    return false;
+                }
+                self.hive.may_place(self.turn(), dst)
+            }
+            Move::Move { src, dst } => {
+                if let Some(p) = self.hive[src].last() {
+                    if p.col() == self.turn() {
+                        return self.hive.may_move(p.typ(), src, dst);
+                    }
+                }
+                false
+            }
+            Move::Skip => {
+                // TODO optimise
+                self.moves() == [m]
+            }
+        }
     }
 
-    pub fn is_legal_unmove(&self, m: Move) -> bool {
-        // FIXME implement
-        true
+    // Checking whether a move _was_ valid is more challenging than
+    // checking whether it _is_ valid and also less necessary as the
+    // usual way to unmake a move is "undoing" a stored valid move,
+    // so this only guarantees that unmaking will not panic
+    // or violate hive connectivity.
+    fn is_unmake_safe(&self, m: Move) -> bool {
+        match m {
+            Move::Place { piece, dst } => {
+                if let [p] = self.hive[dst] {
+                    if p.typ() == piece && p.col() != self.turn() {
+                        return !self.hive.is_structural(dst);
+                    }
+                }
+                false
+            }
+            Move::Move { src, dst } => {
+                if let Some(p) = self.hive[dst].last() {
+                    if p.col() != self.turn() {
+                        // All piece moves are reversible.
+                        return self.hive.may_move(p.typ(), dst, src);
+                    }
+                }
+                false
+            }
+            Move::Skip => true,
+        }
     }
 
     pub fn make_move(&mut self, m: Move) -> Option<()> {
-        if self.is_legal_move(m) {
+        if self.is_legal(m) {
             self.make_move_impl(m);
             Some(())
         } else {
@@ -203,7 +264,7 @@ impl Game {
     }
 
     pub fn unmake_move(&mut self, m: Move) -> Option<()> {
-        if self.is_legal_unmove(m) {
+        if self.is_unmake_safe(m) {
             self.unmake_move_impl(m);
             Some(())
         } else {
@@ -212,12 +273,12 @@ impl Game {
     }
 
     pub fn make_move_unchecked(&mut self, m: Move) {
-        debug_assert!(self.is_legal_move(m));
+        debug_assert!(self.is_legal(m));
         self.make_move_impl(m);
     }
 
     pub fn unmake_move_unchecked(&mut self, m: Move) {
-        debug_assert!(self.is_legal_unmove(m));
+        debug_assert!(self.is_unmake_safe(m));
         self.unmake_move_impl(m);
     }
 
@@ -301,6 +362,7 @@ impl Game {
     }
 
     // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
+    // TODO move to Hive.
     fn find_structural_impl(
         &self,
         pos: Pos,
@@ -350,7 +412,7 @@ impl Game {
         }
     }
 
-    pub(crate) fn moves(&self) -> Vec<Move> {
+    pub fn moves(&self) -> Vec<Move> {
         // Special cases:
         // ply 0:
         // 	place (0,0)
@@ -476,6 +538,14 @@ impl Game {
         game
     }
 
+    pub fn white_hand(&self) -> &Hand {
+        &self.white_hand
+    }
+
+    pub fn black_hand(&self) -> &Hand {
+        &self.black_hand
+    }
+
     fn current_hand_mut(&mut self) -> &mut Hand {
         match self.turn {
             Colour::White => &mut self.white_hand,
@@ -599,5 +669,32 @@ impl fmt::Display for Game {
 impl Default for Game {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use rand::{prelude::SliceRandom, thread_rng};
+
+    use super::*;
+
+    #[test]
+    fn move_list_legal() {
+        let mut game = Game::new();
+        let mut rng = thread_rng();
+        for _ in 0..100 {
+            let moves = game.moves();
+            for &m in moves.iter() {
+                if !game.is_legal(m) {
+                    eprintln!("move {m} illegal in position\n{game}");
+                    eprintln!("hive bounds: {:?}", game.hive.bounds());
+                    panic!("illegal move in move list");
+                }
+            }
+            match moves.choose(&mut rng) {
+                Some(&m) => game.make_move(m).unwrap(),
+                None => return,
+            }
+        }
     }
 }

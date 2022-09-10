@@ -8,7 +8,7 @@ use std::f64::consts::LN_2;
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
-use crate::game::{Move, Game, Outcome};
+use crate::game::{Game, Move, Outcome};
 
 const EXPLORE_C: f64 = 1.0;
 const BATCH_SIZE: u32 = 1;

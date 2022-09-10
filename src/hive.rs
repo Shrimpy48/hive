@@ -21,10 +21,19 @@ pub enum Colour {
 }
 
 impl Colour {
-    pub(crate) fn next(&self) -> Colour {
+    pub fn next(&self) -> Colour {
         match self {
             Colour::White => Colour::Black,
             Colour::Black => Colour::White,
+        }
+    }
+}
+
+impl fmt::Display for Colour {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::White => write!(f, "white"),
+            Self::Black => write!(f, "black"),
         }
     }
 }
@@ -91,15 +100,15 @@ pub enum Piece {
 }
 
 impl Piece {
-    pub(crate) fn new(typ: PieceType, col: Colour) -> Self {
+    pub fn new(typ: PieceType, col: Colour) -> Self {
         (typ as u8 | col as u8).try_into().unwrap()
     }
 
-    pub(crate) fn typ(self) -> PieceType {
+    pub fn typ(self) -> PieceType {
         (self as u8 & 0b01111111).try_into().unwrap()
     }
 
-    pub(crate) fn col(self) -> Colour {
+    pub fn col(self) -> Colour {
         (self as u8 & 0b10000000).try_into().unwrap()
     }
 
@@ -136,9 +145,9 @@ pub(crate) type PieceStack = SmallArrayVec<Piece, 5>;
 // type PieceStack = SmallArrayVec<Piece, 7>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub(crate) struct RawPos {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
+pub struct RawPos {
+    pub x: i32,
+    pub y: i32,
 }
 
 impl RawPos {
@@ -162,6 +171,18 @@ impl RawPos {
             Dir::Down => RawPos { x, y: y - 1 },
             Dir::DownLeft => RawPos { x: x - 1, y },
             Dir::UpLeft => RawPos { x: x - 1, y: y + 1 },
+        }
+    }
+
+    fn dir_to(self, other: RawPos) -> Option<(Dir, i32)> {
+        match other - self {
+            RawPos { x: 0, y } if y > 0 => Some((Dir::Up, y)),
+            RawPos { x: 0, y } if y < 0 => Some((Dir::Down, -y)),
+            RawPos { x, y: 0 } if x > 0 => Some((Dir::UpRight, x)),
+            RawPos { x, y: 0 } if x < 0 => Some((Dir::DownLeft, -x)),
+            RawPos { x, y } if x + y == 0 && x > 0 => Some((Dir::DownRight, x)),
+            RawPos { x, y } if x + y == 0 && x < 0 => Some((Dir::UpLeft, y)),
+            _ => None,
         }
     }
 
@@ -252,7 +273,7 @@ impl FromStr for RawPos {
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct Pos(RawPos);
+pub struct Pos(pub RawPos);
 
 impl Pos {
     pub(crate) fn from_raw_pos(p: RawPos) -> Pos {
@@ -281,6 +302,10 @@ impl Pos {
 
     pub(crate) fn go(self, d: Dir) -> Pos {
         Pos(self.0.go(d))
+    }
+
+    pub(crate) fn dir_to(self, other: Pos) -> Option<(Dir, i32)> {
+        self.0.dir_to(other.0)
     }
 
     fn min_pw(self, other: Pos) -> Pos {
@@ -601,10 +626,10 @@ impl Hive {
         (self.bl, self.tr)
     }
 
-    pub(crate) fn tiles(&self) -> impl Iterator<Item = (Pos, &Piece)> {
+    pub fn tiles(&self) -> impl Iterator<Item = (Pos, Piece)> + '_ {
         (self.bl.0.x..=self.tr.0.x)
             .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| Pos(RawPos { x, y })))
-            .filter_map(move |p| self[p].last().map(|t| (p, t)))
+            .filter_map(move |p| self[p].last().map(|&t| (p, t)))
     }
 
     pub(crate) fn all(&self) -> impl Iterator<Item = (Pos, usize, &Piece)> {
@@ -697,7 +722,7 @@ impl Hive {
 
     fn queen_dests(&self, p: Pos) -> Vec<Pos> {
         let ns = p.neighbours();
-        let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
+        let surrounding = ns.map(|p| self.is_free(p));
         let mut out = Vec::new();
         for d in 0..6 {
             if surrounding[d]
@@ -710,9 +735,21 @@ impl Hive {
         out
     }
 
+    fn may_move_queen(&self, src: Pos, dst: Pos) -> bool {
+        let ns = src.neighbours();
+        let surrounding = ns.map(|p| self.is_free(p));
+        let d = match ns.into_iter().position(|p| p == dst) {
+            Some(d) => d,
+            None => return false,
+        };
+        return surrounding[d]
+            && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
+            && self.neighbours(ns[d], Some(src)).next().is_some();
+    }
+
     fn beetle_dests(&self, p: Pos) -> Vec<Pos> {
         let ns = p.neighbours();
-        let surrounding: Vec<usize> = ns.into_iter().map(|p| self.count(p)).collect();
+        let surrounding = ns.map(|p| self.count(p));
         let src_height = self.count(p) - 1;
         let mut out = Vec::new();
         for d in 0..6 {
@@ -724,6 +761,19 @@ impl Hive {
             }
         }
         out
+    }
+
+    fn may_move_beetle(&self, src: Pos, dst: Pos) -> bool {
+        let ns = src.neighbours();
+        let surrounding = ns.map(|src| self.count(src));
+        let src_height = self.count(src) - 1;
+        let d = match ns.into_iter().position(|src| src == dst) {
+            Some(d) => d,
+            None => return false,
+        };
+        return surrounding[d].max(src_height)
+            >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
+            && (src_height > 0 || self.neighbours(ns[d], Some(src)).next().is_some());
     }
 
     fn hopper_dests(&self, p: Pos) -> Vec<Pos> {
@@ -743,27 +793,86 @@ impl Hive {
             .collect()
     }
 
-    fn ant_dests(&self, p: Pos) -> Vec<Pos> {
+    fn may_move_hopper(&self, src: Pos, dst: Pos) -> bool {
+        let (dir, dist) = match src.dir_to(dst) {
+            Some(vs @ (_, dist)) if dist > 1 => vs,
+            _ => return false,
+        };
+
+        let mut pos = src.go(dir);
+        for _ in 1..dist {
+            if self.is_free(pos) {
+                return false;
+            }
+            pos = pos.go(dir);
+        }
+
+        self.is_free(pos)
+    }
+
+    fn ant_dests(&self, src: Pos) -> Vec<Pos> {
         // TODO optimize / cache
         let mut visited = AHashSet::new();
         let mut to_consider = VecDeque::new();
-        visited.insert(p);
-        to_consider.push_back(p);
+        visited.insert(src);
+        to_consider.push_back(src);
         while let Some(pos) = to_consider.pop_front() {
             let ns = pos.neighbours();
-            let surrounding: Vec<bool> = ns.into_iter().map(|p| self.is_free(p)).collect();
+            let surrounding = ns.map(|p| self.is_free(p) || p == src);
             for d in 0..6 {
                 if !visited.contains(&ns[d])
                     && surrounding[d]
                     && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                    && self.neighbours(ns[d], Some(p)).next().is_some()
+                    && self.neighbours(ns[d], Some(src)).next().is_some()
                 {
                     visited.insert(ns[d]);
                     to_consider.push_back(ns[d]);
                 }
             }
         }
-        visited.into_iter().filter(|&pos| pos != p).collect()
+        visited.into_iter().filter(|&pos| pos != src).collect()
+    }
+
+    fn may_move_ant(&self, src: Pos, dst: Pos) -> bool {
+        // Performs an A* search using min_dist as the heuristic
+        let mut heap = BinaryHeap::new();
+        let mut dists = PosMap::with_default(u32::MAX);
+        dists[src] = 0;
+        heap.push(CostItem {
+            cost: src.min_dist(dst),
+            val: src,
+        });
+
+        while let Some(CostItem { cost, val }) = heap.pop() {
+            if val == dst {
+                return true;
+            }
+
+            if cost > dists[val] + val.min_dist(dst) {
+                // A better path to this node has already been found
+                continue;
+            }
+
+            let ns = val.neighbours();
+            let surrounding = ns.map(|p| self.is_free(p) || p == src);
+            for d in 0..6 {
+                if surrounding[d]
+                    && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
+                    && self.neighbours(ns[d], Some(src)).next().is_some()
+                {
+                    let p = ns[d];
+                    let dist = dists[val] + 1;
+                    if dist < dists[p] {
+                        heap.push(CostItem {
+                            cost: dist + p.min_dist(dst),
+                            val: p,
+                        });
+                        dists[p] = dist;
+                    }
+                }
+            }
+        }
+        false
     }
 
     fn spider_dests(&self, p: Pos) -> Vec<Pos> {
@@ -811,6 +920,63 @@ impl Hive {
             }
         }
         reach_3.into_iter().collect()
+    }
+
+    fn may_move_spider(&self, src: Pos, dst: Pos) -> bool {
+        // Performs a depth-limited A* search using min_dist as the heuristic
+        let mut heap = BinaryHeap::new();
+        let mut dists = PosMap::with_default(u32::MAX);
+        dists[src] = 0;
+        heap.push(CostItem {
+            cost: src.min_dist(dst),
+            val: src,
+        });
+
+        while let Some(CostItem { cost, val }) = heap.pop() {
+            if val == dst {
+                return cost == 3;
+            }
+
+            if cost > dists[val] + val.min_dist(dst) {
+                // A better path to this node has already been found
+                continue;
+            }
+
+            let ns = val.neighbours();
+            let surrounding = ns.map(|p| self.is_free(p) || p == src);
+            for d in 0..6 {
+                if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
+                    let p = ns[d];
+                    let dist = dists[val] + 1;
+                    if dist < dists[p] {
+                        let cost = dist + p.min_dist(dst);
+                        if cost <= 3 {
+                            heap.push(CostItem { cost, val: p });
+                            dists[p] = dist;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub(crate) fn may_move(&self, typ: PieceType, src: Pos, dst: Pos) -> bool {
+        if self.is_structural(src) {
+            return false;
+        }
+        match typ {
+            PieceType::Queen => self.may_move_queen(src, dst),
+            PieceType::Beetle => self.may_move_beetle(src, dst),
+            PieceType::Hopper => self.may_move_hopper(src, dst),
+            PieceType::Ant => self.may_move_ant(src, dst),
+            PieceType::Spider => self.may_move_spider(src, dst),
+        }
+    }
+
+    pub(crate) fn may_place(&self, col: Colour, dst: Pos) -> bool {
+        self.neighbours(dst, None).any(|_| true)
+            && self.neighbours(dst, None).all(|piece| piece.col() == col)
     }
 
     pub(crate) fn destinations(
