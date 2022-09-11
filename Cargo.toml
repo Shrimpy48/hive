@@ -11,6 +11,12 @@ rand = { version = "0.8.5", features = [ "small_rng" ] }
 enum-map = "2.4.0"
 num_enum = "0.5.7"
 ahash = "0.7.6"
+eframe = { version = "0.19.0", optional = true }
+egui_extras = { version = "0.19.0", features = ["svg"], optional = true }
+
+[[bin]]
+name = "gui"
+required-features = [ "eframe", "egui_extras" ]
 
 [profile.prof]
 inherits = "release"

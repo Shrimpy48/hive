@@ -413,6 +413,8 @@ impl Game {
     }
 
     pub fn moves(&self) -> Vec<Move> {
+        // TODO avoid using vecs everywhere and instead make this an iterator.
+        //
         // Special cases:
         // ply 0:
         // 	place (0,0)
@@ -442,23 +444,7 @@ impl Game {
         } else {
             self.current_hand().pieces().collect()
         };
-        let places = if self.turn_counter == 0 {
-            vec![Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
-        } else if self.turn_counter == 1 {
-            // neighbours(Pos { x: 0, y: 0 }).to_vec()
-            vec![Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
-        } else {
-            self.hive
-                .occupied()
-                .flat_map(|p| p.neighbours().into_iter())
-                .filter(|&p| self.hive.is_free(p))
-                .filter(|&p| {
-                    self.hive
-                        .neighbours(p, None)
-                        .all(|piece| piece.col() == self.turn)
-                })
-                .collect()
-        };
+        let places = self.place_locations();
         let placings = places.into_iter().flat_map(|l| {
             placeable
                 .iter()
@@ -477,11 +463,17 @@ impl Game {
                         None
                     }
                 })
-                .flat_map(|(p, typ)| {
-                    self.hive
-                        .destinations(&struct_points, p, typ)
-                        .into_iter()
-                        .map(move |d| Move::Move { src: p, dst: d })
+                .flat_map::<Box<dyn Iterator<Item = Move>>, _>(|(p, typ)| {
+                    if struct_points[p] && self.hive[p].len() == 1 {
+                        Box::new(std::iter::empty())
+                    } else {
+                        Box::new(
+                            self.hive
+                                .destinations(p, typ)
+                                .into_iter()
+                                .map(move |d| Move::Move { src: p, dst: d }),
+                        )
+                    }
                 })
                 .collect()
         };
@@ -490,6 +482,36 @@ impl Game {
             moves.push(Move::Skip);
         }
         moves
+    }
+
+    pub fn place_locations(&self) -> Vec<Pos> {
+        // TODO remove duplicates.
+        if self.turn_counter == 0 {
+            vec![Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
+        } else if self.turn_counter == 1 {
+            // neighbours(Pos { x: 0, y: 0 }).to_vec()
+            vec![Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
+        } else {
+            self.hive
+                .occupied()
+                .flat_map(|p| p.neighbours().into_iter())
+                .filter(|&p| self.hive.is_free(p))
+                .filter(|&p| {
+                    self.hive
+                        .neighbours(p, None)
+                        .all(|piece| piece.col() == self.turn)
+                })
+                .collect()
+        }
+    }
+
+    pub fn destinations(&self, src: Pos) -> Vec<Pos> {
+        if let Some(piece) = self.hive[src].last() {
+            if !self.hive.is_structural(src) {
+                return self.hive.destinations(src, piece.typ());
+            }
+        }
+        vec![]
     }
 
     pub fn over(&self) -> bool {
@@ -567,11 +589,15 @@ impl Game {
         }
     }
 
-    fn current_queen(&self) -> &Option<Pos> {
+    pub fn current_queen(&self) -> &Option<Pos> {
         match self.turn {
             Colour::White => &self.white_queen,
             Colour::Black => &self.black_queen,
         }
+    }
+
+    pub fn turn_counter(&self) -> u32 {
+        self.turn_counter
     }
 
     fn hash_key(&mut self) -> u64 {

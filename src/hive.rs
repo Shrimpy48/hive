@@ -979,15 +979,7 @@ impl Hive {
             && self.neighbours(dst, None).all(|piece| piece.col() == col)
     }
 
-    pub(crate) fn destinations(
-        &self,
-        struct_points: &PosMap<bool>,
-        p: Pos,
-        typ: PieceType,
-    ) -> Vec<Pos> {
-        if struct_points[p] && self.count(p) == 1 {
-            return vec![];
-        }
+    pub(crate) fn destinations(&self, p: Pos, typ: PieceType) -> Vec<Pos> {
         match typ {
             PieceType::Queen => self.queen_dests(p),
             PieceType::Beetle => self.beetle_dests(p),
