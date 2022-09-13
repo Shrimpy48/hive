@@ -63,24 +63,34 @@ impl Default for GuiState {
 
 impl eframe::App for GuiState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            ui.centered_and_justified(|ui| {
+                ui.add(hand(
+                    &self.icons,
+                    Colour::Black,
+                    self.game.black_hand(),
+                    self.game.turn(),
+                    &mut self.selection,
+                ));
+            });
+        });
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.centered_and_justified(|ui| {
+                ui.add(hand(
+                    &self.icons,
+                    Colour::White,
+                    self.game.white_hand(),
+                    self.game.turn(),
+                    &mut self.selection,
+                ));
+            });
+        });
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add(hand(
-                &self.icons,
-                Colour::Black,
-                self.game.black_hand(),
-                self.game.turn(),
-                &mut self.selection,
-            ));
-            ui.separator();
-            ui.add(hive(&self.icons, &mut self.game, &mut self.selection));
-            ui.separator();
-            ui.add(hand(
-                &self.icons,
-                Colour::White,
-                self.game.white_hand(),
-                self.game.turn(),
-                &mut self.selection,
-            ));
+            egui::ScrollArea::both().show(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    ui.add(hive(&self.icons, &mut self.game, &mut self.selection));
+                });
+            });
         });
     }
 }

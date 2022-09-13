@@ -179,33 +179,41 @@ pub(crate) fn hive_ui(
         .collect();
 
     // Add destination indicators to the end so they are drawn last.
-    match *selection {
-        Selection::Nothing => {}
-        Selection::InHand(piece_type) => {
-            if game.current_queen().is_some()
-                || game.turn_counter() < 6
-                || piece_type == hive::PieceType::Queen
-            {
-                shapes.extend(game.place_locations().into_iter().map(|pos| {
-                    (
-                        pos,
-                        true,
-                        space_shape(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
-                        indicator(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
-                    )
-                }));
+    if !game.over() {
+        match *selection {
+            Selection::Nothing => {}
+            Selection::InHand(piece_type) => {
+                if game.current_queen().is_some()
+                    || game.turn_counter() < 6
+                    || piece_type == hive::PieceType::Queen
+                {
+                    shapes.extend(game.place_locations().into_iter().map(|pos| {
+                        (
+                            pos,
+                            true,
+                            space_shape(
+                                radius,
+                                egui::Pos2::default() + grid_size * hex_offset(pos),
+                            ),
+                            indicator(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
+                        )
+                    }));
+                }
             }
-        }
-        Selection::InHive(src) => {
-            if game.current_queen().is_some() {
-                shapes.extend(game.destinations(src).into_iter().map(|pos| {
-                    (
-                        pos,
-                        true,
-                        space_shape(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
-                        indicator(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
-                    )
-                }));
+            Selection::InHive(src) => {
+                if game.current_queen().is_some() {
+                    shapes.extend(game.destinations(src).into_iter().map(|pos| {
+                        (
+                            pos,
+                            true,
+                            space_shape(
+                                radius,
+                                egui::Pos2::default() + grid_size * hex_offset(pos),
+                            ),
+                            indicator(radius, egui::Pos2::default() + grid_size * hex_offset(pos)),
+                        )
+                    }));
+                }
             }
         }
     }
@@ -217,13 +225,26 @@ pub(crate) fn hive_ui(
         .unwrap_or_else(|| space_shape(radius, egui::Pos2::default()).visual_bounding_rect());
     let (mut response, painter) = ui.allocate_painter(bounding_rect.size(), egui::Sense::click());
 
+    assert!(
+        bounding_rect.height() - response.rect.height() < 0.01,
+        "{} < {}",
+        response.rect.height(),
+        bounding_rect.height()
+    );
+    assert!(
+        bounding_rect.width() - response.rect.width() < 0.01,
+        "{} < {}",
+        response.rect.width(),
+        bounding_rect.width()
+    );
+
     let click_pos = if response.clicked() {
         response.interact_pointer_pos()
     } else {
         None
     };
 
-    let painter_centre = painter.clip_rect().center();
+    let painter_centre = response.rect.center();
     let hive_centre = bounding_rect.center();
 
     // Draw the shapes.
@@ -318,17 +339,30 @@ pub(crate) fn hand_ui(
         .unwrap_or_else(|| space_shape(radius, egui::Pos2::default()).visual_bounding_rect());
     let (mut response, painter) = ui.allocate_painter(bounding_rect.size(), egui::Sense::click());
 
+    assert!(
+        bounding_rect.height() - response.rect.height() < 0.01,
+        "{} < {}",
+        response.rect.height(),
+        bounding_rect.height()
+    );
+    assert!(
+        bounding_rect.width() - response.rect.width() < 0.01,
+        "{} < {}",
+        response.rect.width(),
+        bounding_rect.width()
+    );
+
     let click_pos = if response.clicked() {
         response.interact_pointer_pos()
     } else {
         None
     };
 
-    let painter_centre = painter.clip_rect().center();
-    let hive_centre = bounding_rect.center();
+    let painter_centre = response.rect.center();
+    let hand_centre = bounding_rect.center();
     for (piece_type, mut shape, mut icon) in shapes {
-        shape.translate(painter_centre - hive_centre);
-        icon.translate(painter_centre - hive_centre);
+        shape.translate(painter_centre - hand_centre);
+        icon.translate(painter_centre - hand_centre);
         if let Some(p) = click_pos {
             if hand_colour == turn && shape.visual_bounding_rect().contains(p) {
                 *selection = Selection::InHand(piece_type);
