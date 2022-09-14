@@ -418,9 +418,10 @@ impl PartialOrd for CostItem {
 }
 
 // There are 22 pieces (26 with ladybirds and mosquitoes).
-// The board must have space to put all of these in a line without touching the other end.
-const BOARD_SIZE: usize = 23;
-// const BOARD_SIZE: usize = 27;
+// The board must have space to put all of these in a line with a 2 piece gap at the end,
+// so that pieces cannot jump from one end to the other.
+const BOARD_SIZE: usize = 24;
+// const BOARD_SIZE: usize = 28;
 
 // Uses a fixed-size toroidal playing surface.
 // The hive can move arbitrarily far, but its size is bounded by the number of pieces,
