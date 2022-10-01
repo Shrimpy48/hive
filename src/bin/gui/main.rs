@@ -38,7 +38,7 @@ fn main() {
     );
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Selection {
     Nothing,
     InHand(PieceType),

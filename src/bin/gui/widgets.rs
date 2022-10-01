@@ -118,6 +118,21 @@ fn space_shape(radius: f32, centre: egui::Pos2) -> epaint::Shape {
     )
 }
 
+fn selection_shape(radius: f32, centre: egui::Pos2, border: f32) -> epaint::Shape {
+    let vertices = (0..6)
+        .map(|i| {
+            let angle = i as f32 * 2. * std::f32::consts::PI / 6.;
+            centre + radius * egui::Vec2::new(angle.cos(), angle.sin())
+        })
+        .rev()
+        .collect();
+    epaint::Shape::convex_polygon(
+        vertices,
+        egui::Color32::TRANSPARENT,
+        egui::Stroke::new(border, egui::Color32::GREEN),
+    )
+}
+
 fn piece_icon(
     icons: &EnumMap<hive::PieceType, egui_extras::RetainedImage>,
     ctx: &egui::Context,
@@ -152,6 +167,7 @@ pub(crate) fn hive_ui(
     selection: &mut Selection,
 ) -> egui::Response {
     let radius = ui.spacing().interact_size.x;
+    let border = ui.spacing().button_padding.x;
     let grid_size = 2. * radius;
 
     // The shapes to draw and handle clicks for, in drawing order.
@@ -214,6 +230,16 @@ pub(crate) fn hive_ui(
                         )
                     }));
                 }
+                shapes.push((
+                    src,
+                    true,
+                    selection_shape(
+                        radius,
+                        egui::Pos2::default() + grid_size * hex_offset(src),
+                        border,
+                    ),
+                    egui::Shape::Noop,
+                ));
             }
         }
     }
@@ -255,8 +281,6 @@ pub(crate) fn hive_ui(
         painter.add(icon.clone());
     }
 
-    // TODO handle turn skipping.
-
     // Handle clicks in reverse drawing order.
     for (pos, is_destination, shape, _) in shapes.into_iter().rev() {
         if let Some(p) = click_pos {
@@ -276,6 +300,10 @@ pub(crate) fn hive_ui(
                         Selection::InHive(src) => hive::Move::Move { src, dst: pos },
                     };
                     game.make_move(selected_move).expect("illegal move entered");
+                    // Skip until a player can move or a draw is triggered.
+                    // This relies on the fact that a skip is legal only when
+                    // a player has no legal moves and that repetitions are detected.
+                    while game.make_move(hive::Move::Skip).is_some() {}
                     *selection = Selection::Nothing;
                     response.mark_changed();
                 }
@@ -309,29 +337,25 @@ pub(crate) fn hand_ui(
     selection: &mut Selection,
 ) -> egui::Response {
     let radius = ui.spacing().interact_size.x;
+    let border = ui.spacing().button_padding.x;
     let step = 2. * radius + ui.spacing().item_spacing.x;
 
-    let shapes: Vec<_> = hand
-        .pieces()
-        .enumerate()
-        .map(|(i, piece_type)| {
-            (
+    let mut shapes: Vec<_> = Vec::with_capacity(6);
+    for (i, piece_type) in hand.pieces().enumerate() {
+        let pos = egui::Pos2::default() + i as f32 * egui::Vec2::new(step, 0.);
+        shapes.push((
+            piece_type,
+            piece_shape(hand_colour, radius, pos),
+            piece_icon(icons, ui.ctx(), piece_type, radius, pos),
+        ));
+        if hand_colour == turn && *selection == Selection::InHand(piece_type) {
+            shapes.push((
                 piece_type,
-                piece_shape(
-                    hand_colour,
-                    radius,
-                    egui::Pos2::default() + i as f32 * egui::Vec2::new(step, 0.),
-                ),
-                piece_icon(
-                    icons,
-                    ui.ctx(),
-                    piece_type,
-                    radius,
-                    egui::Pos2::default() + i as f32 * egui::Vec2::new(step, 0.),
-                ),
-            )
-        })
-        .collect();
+                selection_shape(radius, pos, border),
+                egui::Shape::Noop,
+            ));
+        }
+    }
     let bounding_rect = shapes
         .iter()
         .map(|(_, s, _)| s.visual_bounding_rect())

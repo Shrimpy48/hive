@@ -1,6 +1,7 @@
 use crate::hive::*;
 use crate::render::*;
 use ahash::AHashMap;
+use ahash::AHashSet;
 use enum_map::{enum_map, EnumMap};
 use rand::random;
 use std::fmt;
@@ -485,12 +486,15 @@ impl Game {
     }
 
     pub fn place_locations(&self) -> Vec<Pos> {
-        // TODO remove duplicates.
-        if self.turn_counter == 0 {
-            vec![Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
+        let out: AHashSet<Pos> = if self.turn_counter == 0 {
+            [Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
+                .into_iter()
+                .collect()
         } else if self.turn_counter == 1 {
             // neighbours(Pos { x: 0, y: 0 }).to_vec()
-            vec![Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
+            [Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
+                .into_iter()
+                .collect()
         } else {
             self.hive
                 .occupied()
@@ -502,7 +506,8 @@ impl Game {
                         .all(|piece| piece.col() == self.turn)
                 })
                 .collect()
-        }
+        };
+        out.into_iter().collect()
     }
 
     pub fn destinations(&self, src: Pos) -> Vec<Pos> {
