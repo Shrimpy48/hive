@@ -1,13 +1,18 @@
+use std::sync::{mpsc, Arc, RwLock};
+use std::thread;
+
 use eframe::egui;
 use egui_extras::RetainedImage;
-
 use enum_map::{enum_map, EnumMap};
-use hive::{Colour, Game, PieceType, Pos};
+use rand::{prelude::*, thread_rng};
 
+use hive::{Colour, Game, Move, PieceType, Pos};
+
+mod engine;
 mod widgets;
 
-use rand::{prelude::*, thread_rng};
-use widgets::{hand, hive};
+use engine::Engine;
+use widgets::{hand, hive, toggle};
 
 fn load_piece_icons() -> EnumMap<PieceType, RetainedImage> {
     enum_map! {
@@ -49,21 +54,14 @@ struct GuiState {
     game: Game,
     selection: Selection,
     icons: EnumMap<PieceType, RetainedImage>,
+    engine_send: mpsc::Sender<engine::Msg>,
+    engine_recv: Arc<RwLock<Move>>,
+    engine_active: bool,
 }
 
-impl Default for GuiState {
-    fn default() -> Self {
-        Self {
-            game: Game::new(),
-            selection: Selection::Nothing,
-            icons: load_piece_icons(),
-        }
-    }
-}
-
-impl eframe::App for GuiState {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+impl GuiState {
+    fn show_game(&mut self, ui: &mut egui::Ui) {
+        egui::TopBottomPanel::top("black hand").show_inside(ui, |ui| {
             ui.centered_and_justified(|ui| {
                 ui.add(hand(
                     &self.icons,
@@ -74,7 +72,7 @@ impl eframe::App for GuiState {
                 ));
             });
         });
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("white hand").show_inside(ui, |ui| {
             ui.centered_and_justified(|ui| {
                 ui.add(hand(
                     &self.icons,
@@ -85,12 +83,52 @@ impl eframe::App for GuiState {
                 ));
             });
         });
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             egui::ScrollArea::both().show(ui, |ui| {
                 ui.centered_and_justified(|ui| {
-                    ui.add(hive(&self.icons, &mut self.game, &mut self.selection));
+                    ui.add(hive(
+                        &self.icons,
+                        &mut self.game,
+                        &mut self.selection,
+                        &self.engine_send,
+                    ));
                 });
             });
         });
+    }
+}
+
+impl Default for GuiState {
+    fn default() -> Self {
+        let (tx, rx) = mpsc::channel();
+        let engine_recv = Arc::new(RwLock::new(Move::Skip));
+        let engine_send = engine_recv.clone();
+        // The thread will exit when tx is dropped.
+        thread::spawn(|| Engine::new(rx, engine_send).run());
+        Self {
+            game: Game::new(),
+            selection: Selection::Nothing,
+            icons: load_piece_icons(),
+            engine_send: tx,
+            engine_recv,
+            engine_active: false,
+        }
+    }
+}
+
+impl eframe::App for GuiState {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::TopBottomPanel::top("engine controls").show(ctx, |ui| {
+            if ui.add(toggle(&mut self.engine_active)).changed() {
+                if self.engine_active {
+                    self.engine_send.send(engine::Msg::Start).unwrap();
+                } else {
+                    self.engine_send.send(engine::Msg::Pause).unwrap();
+                }
+            }
+            // TODO: properly notify egui of changes to this.
+            ui.label(format!("{:?}", self.engine_recv.read().unwrap()));
+        });
+        egui::CentralPanel::default().show(ctx, |ui| self.show_game(ui));
     }
 }

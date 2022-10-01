@@ -246,6 +246,7 @@ impl Bot {
             .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(c, v)| {
                 eprintln!("LCB: {:.1}%", v * 100.0);
+                eprintln!("best move: {:?}", c);
                 c
             })
             .unwrap_or_else(|| panic!("no search tree"))
