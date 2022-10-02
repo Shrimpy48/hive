@@ -1,5 +1,6 @@
 use crate::render::*;
 use crate::small_arrayvec::SmallArrayVec;
+
 use ahash::AHashSet;
 use enum_map::Enum;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -8,9 +9,12 @@ use std::collections::BinaryHeap;
 use std::collections::VecDeque;
 use std::fmt;
 use std::num::ParseIntError;
+use std::ops::AddAssign;
 use std::ops::Index;
 use std::ops::IndexMut;
-use std::ops::{Add, Div, Sub};
+use std::ops::Neg;
+use std::ops::SubAssign;
+use std::ops::{Add, Sub};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoPrimitive, TryFromPrimitive)]
@@ -144,115 +148,119 @@ impl fmt::Display for Piece {
 pub(crate) type PieceStack = SmallArrayVec<Piece, 5>;
 // type PieceStack = SmallArrayVec<Piece, 7>;
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Default)]
+struct WrapPos(Pos);
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct RawPos {
-    pub x: i32,
-    pub y: i32,
+pub struct Pos {
+    pub x: u8,
+    pub y: u8,
 }
 
-impl RawPos {
-    fn min_dist(self, b: RawPos) -> u32 {
-        let RawPos { x: ax, y: ay } = self;
-        let az = -ax - ay;
-        let RawPos { x: bx, y: by } = b;
-        let bz = -bx - by;
-        let dx = (ax - bx).abs();
-        let dy = (ay - by).abs();
-        let dz = (az - bz).abs();
-        dx.max(dy.max(dz)) as u32
+impl Pos {
+    pub(crate) fn neighbours(self) -> [Pos; 6] {
+        Dir::dirs().map(|d| self.go(d))
     }
 
-    fn go(self, d: Dir) -> RawPos {
-        let RawPos { x, y } = self;
+    pub(crate) fn go(self, d: Dir) -> Self {
         match d {
-            Dir::Up => RawPos { x, y: y + 1 },
-            Dir::UpRight => RawPos { x: x + 1, y },
-            Dir::DownRight => RawPos { x: x + 1, y: y - 1 },
-            Dir::Down => RawPos { x, y: y - 1 },
-            Dir::DownLeft => RawPos { x: x - 1, y },
-            Dir::UpLeft => RawPos { x: x - 1, y: y + 1 },
+            Dir::Up => Self {
+                x: self.x,
+                y: self.y + 1,
+            },
+            Dir::UpRight => Self {
+                x: self.x + 1,
+                y: self.y,
+            },
+            Dir::DownRight => Self {
+                x: self.x + 1,
+                y: self.y - 1,
+            },
+            Dir::Down => Self {
+                x: self.x,
+                y: self.y - 1,
+            },
+            Dir::DownLeft => Self {
+                x: self.x - 1,
+                y: self.y,
+            },
+            Dir::UpLeft => Self {
+                x: self.x - 1,
+                y: self.y + 1,
+            },
         }
     }
 
-    fn dir_to(self, other: RawPos) -> Option<(Dir, i32)> {
-        match other - self {
-            RawPos { x: 0, y } if y > 0 => Some((Dir::Up, y)),
-            RawPos { x: 0, y } if y < 0 => Some((Dir::Down, -y)),
-            RawPos { x, y: 0 } if x > 0 => Some((Dir::UpRight, x)),
-            RawPos { x, y: 0 } if x < 0 => Some((Dir::DownLeft, -x)),
-            RawPos { x, y } if x + y == 0 && x > 0 => Some((Dir::DownRight, x)),
-            RawPos { x, y } if x + y == 0 && x < 0 => Some((Dir::UpLeft, y)),
-            _ => None,
+    fn dir_to(self, other: Pos) -> Option<(Dir, u8)> {
+        if self.x == other.x {
+            match other.y.cmp(&self.y) {
+                Ordering::Greater => Some((Dir::Up, other.y - self.y)),
+                Ordering::Less => Some((Dir::Down, self.y - other.y)),
+                Ordering::Equal => None,
+            }
+        } else if self.y == other.y {
+            match other.x.cmp(&self.x) {
+                Ordering::Greater => Some((Dir::UpRight, other.x - self.x)),
+                Ordering::Less => Some((Dir::DownLeft, self.x - other.x)),
+                Ordering::Equal => None,
+            }
+        } else if other.x > self.x && other.y < self.y {
+            if other.x - self.x == self.y - other.y {
+                Some((Dir::DownRight, other.x - self.x))
+            } else {
+                None
+            }
+        } else if other.x < self.x && other.y > self.y {
+            if self.x - other.x == other.y - self.y {
+                Some((Dir::UpLeft, other.y - self.y))
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
-    // fn neighbours(self) -> [Pos; 6] {
-    //     let Pos { x, y } = self;
-    //     [
-    //         Pos { x, y: y + 1 },
-    //         Pos { x: x + 1, y },
-    //         Pos { x: x + 1, y: y - 1 },
-    //         Pos { x, y: y - 1 },
-    //         Pos { x: x - 1, y },
-    //         Pos { x: x - 1, y: y + 1 },
-    //     ]
-    // }
+    pub(crate) fn min_dist(self, b: Pos) -> u8 {
+        let Pos { x: ax, y: ay } = self;
+        let neg_az = ax + ay;
+        let Pos { x: bx, y: by } = b;
+        let neg_bz = bx + by;
+        let dx = ax.abs_diff(bx);
+        let dy = ay.abs_diff(by);
+        let dz = neg_az.abs_diff(neg_bz);
+        dx.max(dy.max(dz))
+    }
 
-    fn min_pw(self, other: RawPos) -> RawPos {
-        RawPos {
+    fn to_abs(self, offset: WrapPos) -> WrapPos {
+        WrapPos(self) + offset
+    }
+
+    fn min_pw(self, other: Pos) -> Pos {
+        Pos {
             x: self.x.min(other.x),
             y: self.y.min(other.y),
         }
     }
 
-    fn max_pw(self, other: RawPos) -> RawPos {
-        RawPos {
+    fn max_pw(self, other: Pos) -> Pos {
+        Pos {
             x: self.x.max(other.x),
             y: self.y.max(other.y),
         }
     }
 }
 
-impl Add for RawPos {
-    type Output = Self;
-
-    fn add(self, other: RawPos) -> RawPos {
-        RawPos {
-            x: self.x + other.x,
-            y: self.y + other.y,
+impl Default for Pos {
+    fn default() -> Self {
+        Self {
+            x: BOARD_SIZE / 2,
+            y: BOARD_SIZE / 2,
         }
     }
 }
 
-impl Sub for RawPos {
-    type Output = Self;
-
-    fn sub(self, other: RawPos) -> RawPos {
-        RawPos {
-            x: self.x - other.x,
-            y: self.y - other.y,
-        }
-    }
-}
-
-impl Div<i32> for RawPos {
-    type Output = Self;
-
-    fn div(self, i: i32) -> RawPos {
-        RawPos {
-            x: self.x / i,
-            y: self.y / i,
-        }
-    }
-}
-
-impl fmt::Display for RawPos {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({},{})", self.x, self.y)
-    }
-}
-
-impl FromStr for RawPos {
+impl FromStr for Pos {
     type Err = ParseIntError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -262,115 +270,48 @@ impl FromStr for RawPos {
             .split(',')
             .collect();
 
-        let x_fromstr = coords[0].parse::<i32>()?;
-        let y_fromstr = coords[1].parse::<i32>()?;
+        let x_fromstr = coords[0].parse::<u8>()?;
+        let y_fromstr = coords[1].parse::<u8>()?;
 
-        Ok(RawPos {
+        Ok(Pos {
             x: x_fromstr,
             y: y_fromstr,
         })
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub struct Pos(pub RawPos);
-
-impl Pos {
-    pub(crate) fn from_raw_pos(p: RawPos) -> Pos {
-        Pos(p)
-    }
-
-    pub(crate) fn to_rel(self, offset: RawPos) -> RelPos {
-        RelPos(self.0 - offset)
-    }
-
-    fn min_dist(self, b: Pos) -> u32 {
-        self.0.min_dist(b.0)
-    }
-
-    pub(crate) fn neighbours(self) -> [Pos; 6] {
-        let RawPos { x, y } = self.0;
-        [
-            Pos(RawPos { x, y: y + 1 }),
-            Pos(RawPos { x: x + 1, y }),
-            Pos(RawPos { x: x + 1, y: y - 1 }),
-            Pos(RawPos { x, y: y - 1 }),
-            Pos(RawPos { x: x - 1, y }),
-            Pos(RawPos { x: x - 1, y: y + 1 }),
-        ]
-    }
-
-    pub(crate) fn go(self, d: Dir) -> Pos {
-        Pos(self.0.go(d))
-    }
-
-    pub(crate) fn dir_to(self, other: Pos) -> Option<(Dir, i32)> {
-        self.0.dir_to(other.0)
-    }
-
-    fn min_pw(self, other: Pos) -> Pos {
-        Pos(self.0.min_pw(other.0))
-    }
-
-    fn max_pw(self, other: Pos) -> Pos {
-        Pos(self.0.max_pw(other.0))
-    }
-}
-
 impl fmt::Display for Pos {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "({},{})", self.x, self.y)
     }
 }
 
-impl FromStr for Pos {
-    type Err = ParseIntError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let pos = s.parse::<RawPos>()?;
-        Ok(Pos(pos))
+impl WrapPos {
+    fn to_rel(self, offset: WrapPos) -> Pos {
+        (self - offset).0
     }
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
-pub(crate) struct RelPos(RawPos);
+impl Add for WrapPos {
+    type Output = Self;
 
-impl RelPos {
-    // pub(crate) fn from_pos(p: Pos) -> RelPos {
-    //     RelPos(p)
-    // }
-
-    pub(crate) fn to_abs(self, offset: RawPos) -> Pos {
-        Pos(self.0 + offset)
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(Pos {
+            x: (self.0.x + rhs.0.x) % BOARD_SIZE,
+            y: (self.0.y + rhs.0.y) % BOARD_SIZE,
+        })
     }
+}
 
-    // fn min_dist(self, b: RelPos) -> u32 {
-    //     self.0.min_dist(b.0)
-    // }
+impl Sub for WrapPos {
+    type Output = Self;
 
-    // fn neighbours(self) -> [RelPos; 6] {
-    //     let Pos { x, y } = self.0;
-    //     [
-    //         RelPos(Pos { x, y: y + 1 }),
-    //         RelPos(Pos { x: x + 1, y }),
-    //         RelPos(Pos { x: x + 1, y: y - 1 }),
-    //         RelPos(Pos { x, y: y - 1 }),
-    //         RelPos(Pos { x: x - 1, y }),
-    //         RelPos(Pos { x: x - 1, y: y + 1 }),
-    //     ]
-    // }
-
-    // fn go(self, d: Dir) -> RelPos {
-    //     RelPos(self.0.go(d))
-    // }
-
-    // fn min_pw(self, other: RelPos) -> RelPos {
-    //     RelPos(self.0.min_pw(other.0))
-    // }
-
-    // fn max_pw(self, other: RelPos) -> RelPos {
-    //     RelPos(self.0.max_pw(other.0))
-    // }
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(Pos {
+            x: (BOARD_SIZE + self.0.x - rhs.0.x) % BOARD_SIZE,
+            y: (BOARD_SIZE + self.0.y - rhs.0.y) % BOARD_SIZE,
+        })
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -394,11 +335,34 @@ impl Dir {
             Dir::UpLeft,
         ]
     }
+
+    fn to_vec(self) -> WrapPos {
+        match self {
+            Dir::Up => WrapPos(Pos { x: 0, y: 1 }),
+            Dir::UpRight => WrapPos(Pos { x: 1, y: 0 }),
+            Dir::DownRight => WrapPos(Pos {
+                x: 1,
+                y: BOARD_SIZE - 1,
+            }),
+            Dir::Down => WrapPos(Pos {
+                x: 0,
+                y: BOARD_SIZE - 1,
+            }),
+            Dir::DownLeft => WrapPos(Pos {
+                x: BOARD_SIZE - 1,
+                y: 0,
+            }),
+            Dir::UpLeft => WrapPos(Pos {
+                x: BOARD_SIZE - 1,
+                y: 1,
+            }),
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 struct CostItem {
-    cost: u32,
+    cost: u8,
     val: Pos,
 }
 
@@ -420,23 +384,25 @@ impl PartialOrd for CostItem {
 // There are 22 pieces (26 with ladybirds and mosquitoes).
 // The board must have space to put all of these in a line with a 2 piece gap at the end,
 // so that pieces cannot jump from one end to the other.
-const BOARD_SIZE: usize = 24;
-// const BOARD_SIZE: usize = 28;
+const BOARD_SIZE: u8 = 24;
+// const BOARD_SIZE: u8 = 28;
 
 // Uses a fixed-size toroidal playing surface.
 // The hive can move arbitrarily far, but its size is bounded by the number of pieces,
 // so this representation correctly models the hive.
 // The origin is placed in the middle of the board so that wrapping occurs infrequently
 // as this should benefit caching.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Hive {
-    data: PosMap<PieceStack>,
-    bl: Pos,
-    tr: Pos,
+    data: WrapPosMap<PieceStack>,
+    bl: WrapPos,
+    tr: WrapPos,
+    // An arbitrary point in the hive for searching from.
+    pos_in_hive: WrapPos,
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PosMap<T>([[T; BOARD_SIZE]; BOARD_SIZE]);
+pub(crate) struct PosMap<T>([[T; BOARD_SIZE as usize]; BOARD_SIZE as usize]);
 
 impl<T: Default> Default for PosMap<T> {
     fn default() -> Self {
@@ -460,13 +426,11 @@ impl<T> IndexMut<Pos> for PosMap<T> {
 
 impl<T> PosMap<T> {
     fn get(&self, pos: Pos) -> &T {
-        &self.0[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+        &self.0[pos.x as usize][pos.y as usize]
     }
 
     fn get_mut(&mut self, pos: Pos) -> &mut T {
-        &mut self.0[((pos.0.x + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
-            [((pos.0.y + BOARD_SIZE as i32 / 2).rem_euclid(BOARD_SIZE as i32)) as usize]
+        &mut self.0[pos.x as usize][pos.y as usize]
     }
 
     fn map<U>(self, f: impl Fn(T) -> U) -> PosMap<U> {
@@ -476,38 +440,101 @@ impl<T> PosMap<T> {
 
 impl<T: Copy> PosMap<T> {
     fn with_default(val: T) -> Self {
-        Self([[val; BOARD_SIZE]; BOARD_SIZE])
+        Self([[val; BOARD_SIZE as usize]; BOARD_SIZE as usize])
+    }
+}
+
+#[derive(Debug, Clone)]
+struct WrapPosMap<T>(PosMap<T>);
+
+impl<T: Default> Default for WrapPosMap<T> {
+    fn default() -> Self {
+        Self(Default::default())
+    }
+}
+
+impl<T> Index<WrapPos> for WrapPosMap<T> {
+    type Output = T;
+
+    fn index(&self, index: WrapPos) -> &Self::Output {
+        self.get(index)
+    }
+}
+
+impl<T> IndexMut<WrapPos> for WrapPosMap<T> {
+    fn index_mut(&mut self, index: WrapPos) -> &mut Self::Output {
+        self.get_mut(index)
+    }
+}
+
+impl<T> WrapPosMap<T> {
+    fn get(&self, pos: WrapPos) -> &T {
+        self.0.get(pos.0)
+    }
+
+    fn get_mut(&mut self, pos: WrapPos) -> &mut T {
+        self.0.get_mut(pos.0)
+    }
+
+    fn map<U>(self, f: impl Fn(T) -> U) -> WrapPosMap<U> {
+        WrapPosMap(self.0.map(f))
+    }
+}
+
+impl<T: Copy> WrapPosMap<T> {
+    fn with_default(val: T) -> Self {
+        Self(PosMap::with_default(val))
     }
 }
 
 impl Hive {
-    pub(crate) fn new() -> Hive {
-        Hive {
-            data: Default::default(),
-            bl: Pos(RawPos { x: 0, y: 0 }),
-            tr: Pos(RawPos { x: 0, y: 0 }),
-        }
+    pub(crate) fn new() -> Self {
+        Self::default()
     }
 
-    pub(crate) fn offset(&self) -> RawPos {
-        (self.tr.0 + self.bl.0) / 2
+    fn offset(&self) -> WrapPos {
+        let WrapPos(Pos { x: dx, y: dy }) = self.tr - self.bl;
+        self.bl
+            + WrapPos(Pos {
+                x: dx / 2,
+                y: dy / 2,
+            })
+            - WrapPos::default()
     }
 
-    pub(crate) fn push(&mut self, dst: Pos, piece: Piece) {
-        self.bl = self.bl.min_pw(dst);
-        self.tr = self.tr.max_pw(dst);
-        self.data[dst].push(piece);
+    fn push(&mut self, dst: Pos, offset: WrapPos, piece: Piece) -> Option<()> {
+        self.bl = self.bl.to_rel(offset).min_pw(dst).to_abs(offset);
+        self.tr = self.tr.to_rel(offset).max_pw(dst).to_abs(offset);
+        self.data[dst.to_abs(offset)].push(piece)
     }
 
-    pub(crate) fn pop(&mut self, src: Pos) -> Option<Piece> {
-        let s = &mut self.data[src];
+    fn pop(&mut self, src: Pos, offset: WrapPos) -> Option<Piece> {
+        let src_abs = src.to_abs(offset);
+        let s = &mut self.data[src_abs];
         if let Some(piece) = s.pop() {
             if s.is_empty() {
-                if src.0.x == self.bl.0.x {
+                if self.pos_in_hive == src_abs {
+                    let mut found = false;
+                    for p in src.neighbours() {
+                        if !self.is_free(p) {
+                            self.pos_in_hive = p.to_abs(offset);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if !found {
+                        self.pos_in_hive = WrapPos::default();
+                    }
+                }
+                let bl = self.bl.to_rel(offset);
+                let tr = self.tr.to_rel(offset);
+                let mut new_bl = bl;
+                let mut new_tr = tr;
+                if src.x == bl.x {
                     let mut found = false;
                     // Look for other pieces with the same x coordinate.
-                    for y in self.bl.0.y..=self.tr.0.y {
-                        if !self.is_free(Pos(RawPos { x: src.0.x, y })) {
+                    for y in bl.y..=tr.y {
+                        if !self.is_free(Pos { x: src.x, y }) {
                             found = true;
                             break;
                         }
@@ -516,25 +543,25 @@ impl Hive {
                         // Look for other pieces with an x coordinate 1 larger.
                         // We need only check the neighbours of src,
                         // as if there are none then src must have contained the last piece.
-                        for y in [src.0.y - 1, src.0.y] {
-                            if !self.is_free(Pos(RawPos { x: src.0.x + 1, y })) {
+                        for y in [src.y - 1, src.y] {
+                            if !self.is_free(Pos { x: src.x + 1, y }) {
                                 found = true;
                                 break;
                             }
                         }
                         if found {
-                            self.bl.0.x += 1;
+                            new_bl.x += 1;
                         } else {
                             // There are no pieces left.
-                            self.bl.0.x = 0;
+                            new_bl.x = Pos::default().x;
                         }
                     }
                 }
-                if src.0.y == self.bl.0.y {
+                if src.y == bl.y {
                     let mut found = false;
                     // Look for other pieces with the same y coordinate.
-                    for x in self.bl.0.x..=self.tr.0.x {
-                        if !self.is_free(Pos(RawPos { x, y: src.0.y })) {
+                    for x in bl.x..=tr.x {
+                        if !self.is_free(Pos { x, y: src.y }) {
                             found = true;
                             break;
                         }
@@ -543,25 +570,25 @@ impl Hive {
                         // Look for other pieces with an x coordinate 1 larger.
                         // We need only check the neighbours of src,
                         // as if there are none then src must have contained the last piece.
-                        for x in [src.0.x - 1, src.0.x] {
-                            if !self.is_free(Pos(RawPos { x, y: src.0.y + 1 })) {
+                        for x in [src.x - 1, src.x] {
+                            if !self.is_free(Pos { x, y: src.y + 1 }) {
                                 found = true;
                                 break;
                             }
                         }
                         if found {
-                            self.bl.0.y += 1;
+                            new_bl.y += 1;
                         } else {
                             // There are no pieces left.
-                            self.bl.0.y = 0;
+                            new_bl.y = Pos::default().y;
                         }
                     }
                 }
-                if src.0.x == self.tr.0.x {
+                if src.x == tr.x {
                     let mut found = false;
                     // Look for other pieces with the same x coordinate.
-                    for y in self.bl.0.y..=self.tr.0.y {
-                        if !self.is_free(Pos(RawPos { x: src.0.x, y })) {
+                    for y in bl.y..=tr.y {
+                        if !self.is_free(Pos { x: src.x, y }) {
                             found = true;
                             break;
                         }
@@ -570,25 +597,25 @@ impl Hive {
                         // Look for other pieces with an x coordinate 1 smaller.
                         // We need only check the neighbours of src,
                         // as if there are none then src must have contained the last piece.
-                        for y in [src.0.y, src.0.y + 1] {
-                            if !self.is_free(Pos(RawPos { x: src.0.x - 1, y })) {
+                        for y in [src.y, src.y + 1] {
+                            if !self.is_free(Pos { x: src.x - 1, y }) {
                                 found = true;
                                 break;
                             }
                         }
                         if found {
-                            self.tr.0.x -= 1;
+                            new_tr.x -= 1;
                         } else {
                             // There are no pieces left.
-                            self.tr.0.x = 0;
+                            new_tr.x = Pos::default().x;
                         }
                     }
                 }
-                if src.0.y == self.tr.0.y {
+                if src.y == tr.y {
                     let mut found = false;
                     // Look for other pieces with the same y coordinate.
-                    for x in self.bl.0.x..=self.tr.0.x {
-                        if !self.is_free(Pos(RawPos { x, y: src.0.y })) {
+                    for x in bl.x..=tr.x {
+                        if !self.is_free(Pos { x, y: src.y }) {
                             found = true;
                             break;
                         }
@@ -597,46 +624,83 @@ impl Hive {
                         // Look for other pieces with an x coordinate 1 smaller.
                         // We need only check the neighbours of src,
                         // as if there are none then src must have contained the last piece.
-                        for x in [src.0.x, src.0.x + 1] {
-                            if !self.is_free(Pos(RawPos { x, y: src.0.y - 1 })) {
+                        for x in [src.x, src.x + 1] {
+                            if !self.is_free(Pos { x, y: src.y - 1 }) {
                                 found = true;
                                 break;
                             }
                         }
                         if found {
-                            self.tr.0.y -= 1;
+                            new_tr.y -= 1;
                         } else {
                             // There are no pieces left.
-                            self.tr.0.y = 0;
+                            new_tr.y = Pos::default().y;
                         }
                     }
                 }
+                self.bl = new_bl.to_abs(offset);
+                self.tr = new_tr.to_abs(offset);
             }
             return Some(piece);
         }
         None
     }
 
+    pub(crate) fn move_piece(&mut self, src: Pos, dst: Pos) -> Option<Piece> {
+        let offset = self.offset();
+        if let Some(piece) = self.pop(src, offset) {
+            self.push(dst, offset, piece);
+            Some(piece)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn place_piece(&mut self, at: Pos, piece: Piece) -> Option<()> {
+        self.push(at, self.offset(), piece)
+    }
+
+    pub(crate) fn take_piece(&mut self, at: Pos) -> Option<Piece> {
+        self.pop(at, self.offset())
+    }
+
     pub fn occupied(&self) -> impl Iterator<Item = Pos> + '_ {
-        (self.bl.0.x..=self.tr.0.x)
-            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| Pos(RawPos { x, y })))
+        let offset = self.offset();
+        let bl = self.bl.to_rel(offset);
+        let tr = self.tr.to_rel(offset);
+        (bl.x..=(tr.x))
+            .flat_map(move |x| (bl.y..=(tr.y)).map(move |y| Pos { x, y }))
             .filter(move |p| !self.is_free(*p))
     }
 
     pub fn bounds(&self) -> (Pos, Pos) {
-        (self.bl, self.tr)
+        let offset = self.offset();
+        let bl = self.bl.to_rel(offset);
+        let tr = self.tr.to_rel(offset);
+        (bl, tr)
     }
 
     pub fn tiles(&self) -> impl Iterator<Item = (Pos, Piece)> + '_ {
-        (self.bl.0.x..=self.tr.0.x)
-            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| Pos(RawPos { x, y })))
+        let offset = self.offset();
+        let bl = self.bl.to_rel(offset);
+        let tr = self.tr.to_rel(offset);
+        (bl.x..=(tr.x))
+            .flat_map(move |x| (bl.y..=(tr.y)).map(move |y| Pos { x, y }))
             .filter_map(move |p| self[p].last().map(|&t| (p, t)))
     }
 
-    pub(crate) fn all(&self) -> impl Iterator<Item = (Pos, usize, &Piece)> {
-        (self.bl.0.x..=self.tr.0.x)
-            .flat_map(move |x| (self.bl.0.y..=self.tr.0.y).map(move |y| Pos(RawPos { x, y })))
-            .flat_map(move |p| self[p].iter().enumerate().map(move |(h, v)| (p, h, v)))
+    pub(crate) fn all(&self) -> impl Iterator<Item = (Pos, u8, &Piece)> {
+        let offset = self.offset();
+        let bl = self.bl.to_rel(offset);
+        let tr = self.tr.to_rel(offset);
+        (bl.x..=(tr.x))
+            .flat_map(move |x| (bl.y..=(tr.y)).map(move |y| Pos { x, y }))
+            .flat_map(move |p| {
+                self[p]
+                    .iter()
+                    .enumerate()
+                    .map(move |(h, v)| (p, h as u8, v))
+            })
     }
 
     pub(crate) fn is_free(&self, p: Pos) -> bool {
@@ -661,7 +725,7 @@ impl Hive {
     fn are_connected(&self, a: Pos, b: Pos, excluding: Pos) -> bool {
         // Performs an A* search using min_dist as the heuristic
         let mut heap = BinaryHeap::new();
-        let mut dists = PosMap::with_default(u32::MAX);
+        let mut dists = PosMap::with_default(u8::MAX);
         dists[a] = 0;
         heap.push(CostItem {
             cost: a.min_dist(b),
@@ -721,6 +785,80 @@ impl Hive {
         false
     }
 
+    pub(crate) fn find_structural(&self) -> PosMap<bool> {
+        let mut artic_points = PosMap::default();
+
+        let start = self.pos_in_hive.to_rel(self.offset());
+
+        if self.is_free(start) {
+            // The hive is empty.
+            return artic_points;
+        }
+
+        self.find_structural_impl(
+            start,
+            None,
+            0,
+            &mut PosMap::default(),
+            &mut PosMap::default(),
+            &mut PosMap::default(),
+            &mut artic_points,
+        );
+
+        artic_points
+    }
+
+    // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
+    // TODO move to Hive.
+    fn find_structural_impl(
+        &self,
+        pos: Pos,
+        parent: Option<Pos>,
+        d: u8,
+        depth: &mut PosMap<u8>,
+        low: &mut PosMap<u8>,
+        visited: &mut PosMap<bool>,
+        artic_points: &mut PosMap<bool>,
+    ) {
+        visited[pos] = true;
+        depth[pos] = d;
+        low[pos] = d;
+        let mut child_count = 0;
+        let mut is_articulation = false;
+
+        for dir in Dir::dirs() {
+            let new_pos = pos.go(dir);
+            if self.is_free(new_pos) {
+                continue;
+            }
+            if !visited[new_pos] {
+                self.find_structural_impl(
+                    new_pos,
+                    Some(pos),
+                    d + 1,
+                    depth,
+                    low,
+                    visited,
+                    artic_points,
+                );
+                child_count += 1;
+                if low[new_pos] >= depth[pos] {
+                    is_articulation = true;
+                }
+                low[pos] = low[pos].min(low[new_pos]);
+            } else if parent.map_or(true, |p| p != new_pos) {
+                low[pos] = low[pos].min(depth[new_pos]);
+            }
+        }
+
+        if match parent {
+            Some(_) => is_articulation,
+            None => child_count > 1,
+        } {
+            artic_points[pos] = true;
+        }
+    }
+
     fn queen_dests(&self, p: Pos) -> Vec<Pos> {
         let ns = p.neighbours();
         let surrounding = ns.map(|p| self.is_free(p));
@@ -730,6 +868,7 @@ impl Hive {
                 && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
                 && self.neighbours(ns[d], Some(p)).next().is_some()
             {
+                debug_assert!(self.may_move_queen(p, ns[d]));
                 out.push(ns[d]);
             }
         }
@@ -758,6 +897,7 @@ impl Hive {
                 >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
                 && (src_height > 0 || self.neighbours(ns[d], Some(p)).next().is_some())
             {
+                debug_assert!(self.may_move_beetle(p, ns[d]));
                 out.push(ns[d]);
             }
         }
@@ -785,18 +925,22 @@ impl Hive {
                 if self.is_free(pos) {
                     return None;
                 }
-                pos = pos.go(d);
                 while !self.is_free(pos) {
                     pos = pos.go(d);
                 }
+                debug_assert!(self.may_move_hopper(p, pos));
                 Some(pos)
             })
             .collect()
     }
 
     fn may_move_hopper(&self, src: Pos, dst: Pos) -> bool {
+        if src == dst {
+            return false;
+        }
+
         let (dir, dist) = match src.dir_to(dst) {
-            Some(vs @ (_, dist)) if dist > 1 => vs,
+            Some(vs) => vs,
             _ => return false,
         };
 
@@ -831,13 +975,17 @@ impl Hive {
                 }
             }
         }
-        visited.into_iter().filter(|&pos| pos != src).collect()
+        visited
+            .into_iter()
+            .filter(|&pos| pos != src)
+            .inspect(|&pos| debug_assert!(self.may_move_ant(src, pos)))
+            .collect()
     }
 
     fn may_move_ant(&self, src: Pos, dst: Pos) -> bool {
         // Performs an A* search using min_dist as the heuristic
         let mut heap = BinaryHeap::new();
-        let mut dists = PosMap::with_default(u32::MAX);
+        let mut dists = PosMap::with_default(u8::MAX);
         dists[src] = 0;
         heap.push(CostItem {
             cost: src.min_dist(dst),
@@ -920,13 +1068,16 @@ impl Hive {
                 }
             }
         }
-        reach_3.into_iter().collect()
+        reach_3
+            .into_iter()
+            .inspect(|&pos| debug_assert!(self.may_move_spider(p, pos)))
+            .collect()
     }
 
     fn may_move_spider(&self, src: Pos, dst: Pos) -> bool {
         // Performs a depth-limited A* search using min_dist as the heuristic
         let mut heap = BinaryHeap::new();
-        let mut dists = PosMap::with_default(u32::MAX);
+        let mut dists = PosMap::with_default(u8::MAX);
         dists[src] = 0;
         heap.push(CostItem {
             cost: src.min_dist(dst),
@@ -993,14 +1144,14 @@ impl Hive {
 
 impl fmt::Display for Hive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let offset = self.offset();
         let mut canvas = Canvas::new();
         let mut to_draw: Vec<_> = self.all().collect();
         to_draw.sort_unstable_by_key(|(_, h, _)| *h);
         for (pos, h, piece) in to_draw {
-            let pos_offset = pos.to_rel(offset);
-            let x = pos_offset.0.x * 6 - h as i32;
-            let y = -(pos_offset.0.x * 2 + pos_offset.0.y * 4) - h as i32;
+            let rel_x = pos.x as i16 - Pos::default().x as i16;
+            let rel_y = pos.y as i16 - Pos::default().y as i16;
+            let x = rel_x * 6 - h as i16;
+            let y = -(rel_x * 2 + rel_y * 4) - h as i16;
             piece.put(&mut canvas, (x, y));
         }
         f.write_str(&canvas.render())
@@ -1011,6 +1162,6 @@ impl Index<Pos> for Hive {
     type Output = [Piece];
 
     fn index(&self, index: Pos) -> &Self::Output {
-        &self.data[index]
+        &self.data[index.to_abs(self.offset())]
     }
 }

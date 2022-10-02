@@ -64,6 +64,7 @@ impl<T, const CAP: usize> Default for SmallArrayVec<T, CAP> {
 
 impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
     pub(crate) fn new() -> Self {
+        assert!(CAP <= u8::MAX as usize);
         Self {
             // SAFETY: An uninitialized `[MaybeUninit<_>; LEN]` is valid.
             buf: unsafe { MaybeUninit::uninit().assume_init() },
@@ -83,11 +84,10 @@ impl<T, const CAP: usize> SmallArrayVec<T, CAP> {
         self.buf.as_mut_ptr() as *mut T
     }
 
-    pub(crate) fn push(&mut self, elem: T) {
-        assert!(self.len < u8::MAX);
-        let pos = self.len as usize;
-        self.buf[pos].write(elem);
+    pub(crate) fn push(&mut self, elem: T) -> Option<()> {
+        self.buf.get_mut(self.len as usize)?.write(elem);
         self.len += 1;
+        Some(())
     }
 
     pub(crate) fn pop(&mut self) -> Option<T> {

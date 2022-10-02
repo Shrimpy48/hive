@@ -91,13 +91,6 @@ impl FromStr for Move {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RelMove {
-    Place { piece: PieceType, dst: RelPos },
-    Move { src: RelPos, dst: RelPos },
-    Skip,
-}
-
 pub enum Outcome {
     Win(Colour),
     Draw,
@@ -105,7 +98,7 @@ pub enum Outcome {
 }
 
 struct ZobristTable {
-    data: AHashMap<(RelPos, usize, Piece), u64>,
+    data: AHashMap<(Pos, u8, Piece), u64>,
     turn_num: [u64; 9],
     turn: [u64; 2],
     rep_num: [u64; 5],
@@ -121,7 +114,7 @@ impl ZobristTable {
         }
     }
 
-    fn get(&mut self, pos: RelPos, h: usize, piece: Piece) -> u64 {
+    fn get(&mut self, pos: Pos, h: u8, piece: Piece) -> u64 {
         *self.data.entry((pos, h, piece)).or_insert_with(random)
     }
 }
@@ -140,36 +133,6 @@ pub struct Game {
 }
 
 impl Game {
-    pub(crate) fn offset_move(&self, m: RelMove) -> Move {
-        let offset = self.hive.offset();
-        match m {
-            RelMove::Place { piece, dst } => Move::Place {
-                piece,
-                dst: dst.to_abs(offset),
-            },
-            RelMove::Move { src, dst } => Move::Move {
-                src: src.to_abs(offset),
-                dst: dst.to_abs(offset),
-            },
-            RelMove::Skip => Move::Skip,
-        }
-    }
-
-    pub(crate) fn unoffset_move(&self, m: Move) -> RelMove {
-        let offset = self.hive.offset();
-        match m {
-            Move::Place { piece, dst } => RelMove::Place {
-                piece,
-                dst: dst.to_rel(offset),
-            },
-            Move::Move { src, dst } => RelMove::Move {
-                src: src.to_rel(offset),
-                dst: dst.to_rel(offset),
-            },
-            Move::Skip => RelMove::Skip,
-        }
-    }
-
     pub fn hive(&self) -> &Hive {
         &self.hive
     }
@@ -202,10 +165,10 @@ impl Game {
                     return false;
                 }
                 if self.turn_counter == 0 {
-                    return dst == Pos::from_raw_pos(RawPos { x: 0, y: 0 });
+                    return dst == Pos::default();
                 }
                 if self.turn_counter == 1 {
-                    return dst == Pos::from_raw_pos(RawPos { x: 0, y: 1 });
+                    return Pos::default().neighbours().contains(&dst);
                 }
                 if !self.hive.is_free(dst) {
                     return false;
@@ -287,17 +250,16 @@ impl Game {
         match m {
             Move::Place { piece, dst } => {
                 self.current_hand_mut().remove(piece);
-                self.hive.push(dst, Piece::new(piece, self.turn));
+                self.hive.place_piece(dst, Piece::new(piece, self.turn));
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
             }
             Move::Move { src, dst } => {
-                let piece = self.hive.pop(src).unwrap();
+                let piece = self.hive.move_piece(src, dst).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
-                self.hive.push(dst, piece);
             }
             Move::Skip => {}
         }
@@ -309,108 +271,30 @@ impl Game {
     }
 
     fn unmake_move_impl(&mut self, m: Move) {
+        // FIXME: this implementation uses the wrong offset.
+        // Unmakable moves probably need absolute positions to implement efficiently.
         let key = self.hash_key();
         *self.reptable.get_mut(&key).unwrap() -= 1;
         self.turn_counter -= 1;
         self.turn = self.turn.next();
         match m {
             Move::Place { piece, dst } => {
-                self.hive.pop(dst).unwrap();
+                self.hive.take_piece(dst).unwrap();
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = None;
                 }
                 self.current_hand_mut().add(piece);
             }
             Move::Move { src, dst } => {
-                let piece = self.hive.pop(dst).unwrap();
+                let piece = self.hive.move_piece(dst, src).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(src);
                 }
-                self.hive.push(src, piece);
             }
             Move::Skip => {}
         }
         let key = self.hash_key();
         self.current_reps = *self.reptable.get(&key).unwrap();
-    }
-
-    fn find_structural(&self) -> PosMap<bool> {
-        if self.turn_counter < 2 {
-            // Within the first 2 ply, there are at most 2 pieces,
-            // so these are not structural.
-            return PosMap::default();
-        }
-
-        let mut artic_points = PosMap::default();
-
-        // There must be a white piece here as white starts at (0, 0)
-        // and cannot move this piece without placing their bee.
-        let start = self
-            .white_queen
-            .unwrap_or(Pos::from_raw_pos(RawPos { x: 0, y: 0 }));
-
-        self.find_structural_impl(
-            start,
-            None,
-            0,
-            &mut PosMap::default(),
-            &mut PosMap::default(),
-            &mut PosMap::default(),
-            &mut artic_points,
-        );
-
-        artic_points
-    }
-
-    // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
-    // TODO move to Hive.
-    fn find_structural_impl(
-        &self,
-        pos: Pos,
-        parent: Option<Pos>,
-        d: u8,
-        depth: &mut PosMap<u8>,
-        low: &mut PosMap<u8>,
-        visited: &mut PosMap<bool>,
-        artic_points: &mut PosMap<bool>,
-    ) {
-        visited[pos] = true;
-        depth[pos] = d;
-        low[pos] = d;
-        let mut child_count = 0;
-        let mut is_articulation = false;
-
-        for dir in Dir::dirs() {
-            let new_pos = pos.go(dir);
-            if self.hive.is_free(new_pos) {
-                continue;
-            }
-            if !visited[new_pos] {
-                self.find_structural_impl(
-                    new_pos,
-                    Some(pos),
-                    d + 1,
-                    depth,
-                    low,
-                    visited,
-                    artic_points,
-                );
-                child_count += 1;
-                if low[new_pos] >= depth[pos] {
-                    is_articulation = true;
-                }
-                low[pos] = low[pos].min(low[new_pos]);
-            } else if parent.map_or(true, |p| p != new_pos) {
-                low[pos] = low[pos].min(depth[new_pos]);
-            }
-        }
-
-        if match parent {
-            Some(_) => is_articulation,
-            None => child_count > 1,
-        } {
-            artic_points[pos] = true;
-        }
     }
 
     pub fn moves(&self) -> Vec<Move> {
@@ -424,7 +308,7 @@ impl Game {
         // turn 4 with no queen: place queen
         // no queen: no moves
 
-        // Placings: Colour -> {Pos}
+        // Placings: Colour -> {RelWrapPos}
         // Initial placings: as usual
         // When place or move to: remove dest, check neighbours - add new same-colour, remove blocked other-colour
         // When unplace or move from: add src if legal, check neighbours - remove supported same-colour, add blocked other-colour
@@ -454,7 +338,7 @@ impl Game {
         let mut moves = if self.current_queen().is_none() {
             vec![]
         } else {
-            let struct_points = self.find_structural();
+            let struct_points = self.hive.find_structural();
             self.hive
                 .tiles()
                 .filter_map(|(p, piece)| {
@@ -487,14 +371,9 @@ impl Game {
 
     pub fn place_locations(&self) -> Vec<Pos> {
         let out: AHashSet<Pos> = if self.turn_counter == 0 {
-            [Pos::from_raw_pos(RawPos { x: 0, y: 0 })]
-                .into_iter()
-                .collect()
+            [Pos::default()].into_iter().collect()
         } else if self.turn_counter == 1 {
-            // neighbours(Pos { x: 0, y: 0 }).to_vec()
-            [Pos::from_raw_pos(RawPos { x: 0, y: 1 })]
-                .into_iter()
-                .collect()
+            Pos::default().neighbours().into_iter().collect()
         } else {
             self.hive
                 .occupied()
@@ -606,7 +485,6 @@ impl Game {
     }
 
     fn hash_key(&mut self) -> u64 {
-        let offset = self.hive.offset();
         let table = &mut self.ztable;
         (match self.turn {
             Colour::White => table.turn[0],
@@ -618,9 +496,10 @@ impl Game {
             self.turn_counter as usize
         } else {
             8
-        }] ^ self.hive.all().fold(0, |x, (pos, h, piece)| {
-            x ^ table.get(pos.to_rel(offset), h, *piece)
-        })
+        }] ^ self
+            .hive
+            .all()
+            .fold(0, |x, (pos, h, piece)| x ^ table.get(pos, h, *piece))
     }
 
     pub(crate) fn table_key(&mut self) -> u64 {

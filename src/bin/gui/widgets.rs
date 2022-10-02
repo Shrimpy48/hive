@@ -157,8 +157,8 @@ fn indicator(radius: f32, centre: egui::Pos2) -> epaint::Shape {
 
 fn hex_offset(pos: hive::Pos) -> egui::Vec2 {
     egui::Vec2::new(
-        pos.0.x as f32 * std::f32::consts::FRAC_PI_6.cos(),
-        -pos.0.y as f32 - pos.0.x as f32 * std::f32::consts::FRAC_PI_6.sin(),
+        pos.x as f32 * std::f32::consts::FRAC_PI_6.cos(),
+        -(pos.y as f32) - pos.x as f32 * std::f32::consts::FRAC_PI_6.sin(),
     )
 }
 

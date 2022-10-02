@@ -92,7 +92,7 @@ struct TEntry {
     ///
     /// This enables PVS and saves us recomputing
     /// the possible moves as this is expensive.
-    ms: Vec<RelMove>,
+    ms: Vec<Move>,
 }
 
 /// The transposition table.
@@ -177,7 +177,7 @@ impl Bot {
         if ms.len() == 1 {
             return ms[0];
         }
-        let mut best = RelMove::Skip;
+        let mut best = Move::Skip;
         for d in 1..=depth {
             let (m, v) = self.search(game, d, Value::Loss, Value::Win);
             best = m;
@@ -198,7 +198,7 @@ impl Bot {
                 }
             }
         }
-        game.offset_move(best)
+        best
     }
 
     // /// An estimate for the material value of each piece type.
@@ -301,13 +301,7 @@ impl Bot {
     /// `a` and `b` are lower and upper pruning bounds respectively.
     ///
     /// Returns the node value and the move which achieves it.
-    fn search(
-        &mut self,
-        game: &mut Game,
-        depth: u8,
-        mut a: Value,
-        mut b: Value,
-    ) -> (RelMove, Value) {
+    fn search(&mut self, game: &mut Game, depth: u8, mut a: Value, mut b: Value) -> (Move, Value) {
         let mut moves;
         let start_a = a;
         // Check if the node has already been searched.
@@ -338,17 +332,15 @@ impl Bot {
             // This will give us a bound against which to check the other moves.
             let pv = moves[0];
             let mut best = 0;
-            let m_ = game.offset_move(pv);
-            game.make_move_unchecked(m_);
+            game.make_move_unchecked(pv);
             let mut value = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move_unchecked(m_);
+            game.unmake_move_unchecked(pv);
             a = a.max(value);
 
             if a < b {
                 // Search the remaining moves to see if they exceed the bound.
                 for (i, m) in moves[1..].iter().enumerate() {
-                    let m_ = game.offset_move(*m);
-                    game.make_move_unchecked(m_);
+                    game.make_move_unchecked(*m);
                     let mut val;
                     if let Value::Value(a_) = a {
                         // Search with a null window at first.
@@ -362,7 +354,7 @@ impl Bot {
                         // We have no good bound yet, so we have to do a full search.
                         val = -self.val(game, depth - 1, -b, -a);
                     }
-                    game.unmake_move_unchecked(m_);
+                    game.unmake_move_unchecked(*m);
                     if value < val {
                         value = val;
                         best = i + 1;
@@ -398,18 +390,13 @@ impl Bot {
 
         // We don't have a principle variation yet,
         // so do normal negamax.
-        moves = game
-            .moves()
-            .into_iter()
-            .map(|m| game.unoffset_move(m))
-            .collect();
+        moves = game.moves().into_iter().collect();
         let mut value = Value::Loss;
         let mut best = 0;
         for (i, m) in moves.iter().enumerate() {
-            let m_ = game.offset_move(*m);
-            game.make_move_unchecked(m_);
+            game.make_move_unchecked(*m);
             let val = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move_unchecked(m_);
+            game.unmake_move_unchecked(*m);
             if value < val {
                 value = val;
                 best = i;

@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::iter;
 
-pub type Coord = (i32, i32);
+pub type Coord = (i16, i16);
 
 pub struct Canvas {
     data: VecDeque<VecDeque<char>>,
@@ -37,7 +37,7 @@ impl Canvas {
             self.width += 1;
             self.origin.0 += 1;
         }
-        for _ in self.width as i32..=idx.0 {
+        for _ in self.width as i16..=idx.0 {
             for row in self.data.iter_mut() {
                 row.push_back(' ');
             }
@@ -47,7 +47,7 @@ impl Canvas {
             self.data.push_front(blank_line(self.width));
             self.origin.1 += 1;
         }
-        for _ in self.data.len() as i32..=idx.1 {
+        for _ in self.data.len() as i16..=idx.1 {
             self.data.push_back(blank_line(self.width));
         }
         let idx = (self.origin.0 + pos.0, self.origin.1 + pos.1);
@@ -71,7 +71,7 @@ impl Canvas {
         self.put((x, y + 1), '🮣');
         self.put((x + 1, y + 1), '🮠');
         for i in 0..3 {
-            self.put((x + 2 + (i as i32), y + 1), l1[i]);
+            self.put((x + 2 + (i as i16), y + 1), l1[i]);
         }
         self.put((x + 5, y + 1), '🮡');
         self.put((x + 6, y + 1), '🮢');
@@ -79,7 +79,7 @@ impl Canvas {
         self.put((x, y + 2), '🮡');
         self.put((x + 1, y + 2), '🮢');
         for i in 0..3 {
-            self.put((x + 2 + (i as i32), y + 2), l2[i]);
+            self.put((x + 2 + (i as i16), y + 2), l2[i]);
         }
         self.put((x + 5, y + 2), '🮣');
         self.put((x + 6, y + 2), '🮠');
