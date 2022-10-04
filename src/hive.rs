@@ -149,7 +149,42 @@ pub(crate) type PieceStack = SmallArrayVec<Piece, 5>;
 // type PieceStack = SmallArrayVec<Piece, 7>;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Default)]
-struct WrapPos(Pos);
+pub struct WrapPos(Pos);
+
+impl WrapPos {
+    pub(crate) fn neighbours(self) -> [WrapPos; 6] {
+        Dir::dirs().map(|d| self.go(d))
+    }
+
+    pub(crate) fn go(self, d: Dir) -> Self {
+        match d {
+            Dir::Up => Self(Pos {
+                x: self.0.x,
+                y: (self.0.y + 1) % BOARD_SIZE,
+            }),
+            Dir::UpRight => Self(Pos {
+                x: (self.0.x + 1) % BOARD_SIZE,
+                y: self.0.y,
+            }),
+            Dir::DownRight => Self(Pos {
+                x: (self.0.x + 1) % BOARD_SIZE,
+                y: (BOARD_SIZE + self.0.y - 1) % BOARD_SIZE,
+            }),
+            Dir::Down => Self(Pos {
+                x: self.0.x,
+                y: (BOARD_SIZE + self.0.y - 1) % BOARD_SIZE,
+            }),
+            Dir::DownLeft => Self(Pos {
+                x: (BOARD_SIZE + self.0.x - 1) % BOARD_SIZE,
+                y: self.0.y,
+            }),
+            Dir::UpLeft => Self(Pos {
+                x: (BOARD_SIZE + self.0.x - 1) % BOARD_SIZE,
+                y: (self.0.y + 1) % BOARD_SIZE,
+            }),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub struct Pos {
@@ -232,7 +267,7 @@ impl Pos {
         dx.max(dy.max(dz))
     }
 
-    fn to_abs(self, offset: WrapPos) -> WrapPos {
+    pub(crate) fn to_abs(self, offset: WrapPos) -> WrapPos {
         WrapPos(self) + offset
     }
 
@@ -287,7 +322,7 @@ impl fmt::Display for Pos {
 }
 
 impl WrapPos {
-    fn to_rel(self, offset: WrapPos) -> Pos {
+    pub(crate) fn to_rel(self, offset: WrapPos) -> Pos {
         (self - offset).0
     }
 }
@@ -492,7 +527,7 @@ impl Hive {
         Self::default()
     }
 
-    fn offset(&self) -> WrapPos {
+    pub(crate) fn offset(&self) -> WrapPos {
         let WrapPos(Pos { x: dx, y: dy }) = self.tr - self.bl;
         self.bl
             + WrapPos(Pos {
@@ -502,22 +537,27 @@ impl Hive {
             - WrapPos::default()
     }
 
-    fn push(&mut self, dst: Pos, offset: WrapPos, piece: Piece) -> Option<()> {
-        self.bl = self.bl.to_rel(offset).min_pw(dst).to_abs(offset);
-        self.tr = self.tr.to_rel(offset).max_pw(dst).to_abs(offset);
-        self.data[dst.to_abs(offset)].push(piece)
+    pub(crate) fn push(&mut self, dst: WrapPos, piece: Piece) -> Option<()> {
+        // Using relative coordinates allows for ordering.
+        let offset = self.offset();
+        let dst_rel = dst.to_rel(offset);
+        self.bl = self.bl.to_rel(offset).min_pw(dst_rel).to_abs(offset);
+        self.tr = self.tr.to_rel(offset).max_pw(dst_rel).to_abs(offset);
+        self.data[dst].push(piece)
     }
 
-    fn pop(&mut self, src: Pos, offset: WrapPos) -> Option<Piece> {
-        let src_abs = src.to_abs(offset);
-        let s = &mut self.data[src_abs];
+    pub(crate) fn pop(&mut self, src: WrapPos) -> Option<Piece> {
+        // Using relative coordinates allows for ordering.
+        let offset = self.offset();
+        let src_rel = src.to_rel(offset);
+        let s = &mut self.data[src];
         if let Some(piece) = s.pop() {
             if s.is_empty() {
-                if self.pos_in_hive == src_abs {
+                if self.pos_in_hive == src {
                     let mut found = false;
                     for p in src.neighbours() {
                         if !self.is_free(p) {
-                            self.pos_in_hive = p.to_abs(offset);
+                            self.pos_in_hive = p;
                             found = true;
                             break;
                         }
@@ -530,21 +570,24 @@ impl Hive {
                 let tr = self.tr.to_rel(offset);
                 let mut new_bl = bl;
                 let mut new_tr = tr;
-                if src.x == bl.x {
+                if src_rel.x == bl.x {
                     let mut found = false;
                     // Look for other pieces with the same x coordinate.
                     for y in bl.y..=tr.y {
-                        if !self.is_free(Pos { x: src.x, y }) {
+                        if !self.is_free_rel(Pos { x: src_rel.x, y }) {
                             found = true;
                             break;
                         }
                     }
                     if !found {
                         // Look for other pieces with an x coordinate 1 larger.
-                        // We need only check the neighbours of src,
-                        // as if there are none then src must have contained the last piece.
-                        for y in [src.y - 1, src.y] {
-                            if !self.is_free(Pos { x: src.x + 1, y }) {
+                        // We need only check the neighbours of src_rel,
+                        // as if there are none then src_rel must have contained the last piece.
+                        for y in [src_rel.y - 1, src_rel.y] {
+                            if !self.is_free_rel(Pos {
+                                x: src_rel.x + 1,
+                                y,
+                            }) {
                                 found = true;
                                 break;
                             }
@@ -557,21 +600,24 @@ impl Hive {
                         }
                     }
                 }
-                if src.y == bl.y {
+                if src_rel.y == bl.y {
                     let mut found = false;
                     // Look for other pieces with the same y coordinate.
                     for x in bl.x..=tr.x {
-                        if !self.is_free(Pos { x, y: src.y }) {
+                        if !self.is_free_rel(Pos { x, y: src_rel.y }) {
                             found = true;
                             break;
                         }
                     }
                     if !found {
                         // Look for other pieces with an x coordinate 1 larger.
-                        // We need only check the neighbours of src,
-                        // as if there are none then src must have contained the last piece.
-                        for x in [src.x - 1, src.x] {
-                            if !self.is_free(Pos { x, y: src.y + 1 }) {
+                        // We need only check the neighbours of src_rel,
+                        // as if there are none then src_rel must have contained the last piece.
+                        for x in [src_rel.x - 1, src_rel.x] {
+                            if !self.is_free_rel(Pos {
+                                x,
+                                y: src_rel.y + 1,
+                            }) {
                                 found = true;
                                 break;
                             }
@@ -584,21 +630,24 @@ impl Hive {
                         }
                     }
                 }
-                if src.x == tr.x {
+                if src_rel.x == tr.x {
                     let mut found = false;
                     // Look for other pieces with the same x coordinate.
                     for y in bl.y..=tr.y {
-                        if !self.is_free(Pos { x: src.x, y }) {
+                        if !self.is_free_rel(Pos { x: src_rel.x, y }) {
                             found = true;
                             break;
                         }
                     }
                     if !found {
                         // Look for other pieces with an x coordinate 1 smaller.
-                        // We need only check the neighbours of src,
-                        // as if there are none then src must have contained the last piece.
-                        for y in [src.y, src.y + 1] {
-                            if !self.is_free(Pos { x: src.x - 1, y }) {
+                        // We need only check the neighbours of src_rel,
+                        // as if there are none then src_rel must have contained the last piece.
+                        for y in [src_rel.y, src_rel.y + 1] {
+                            if !self.is_free_rel(Pos {
+                                x: src_rel.x - 1,
+                                y,
+                            }) {
                                 found = true;
                                 break;
                             }
@@ -611,21 +660,24 @@ impl Hive {
                         }
                     }
                 }
-                if src.y == tr.y {
+                if src_rel.y == tr.y {
                     let mut found = false;
                     // Look for other pieces with the same y coordinate.
                     for x in bl.x..=tr.x {
-                        if !self.is_free(Pos { x, y: src.y }) {
+                        if !self.is_free_rel(Pos { x, y: src_rel.y }) {
                             found = true;
                             break;
                         }
                     }
                     if !found {
                         // Look for other pieces with an x coordinate 1 smaller.
-                        // We need only check the neighbours of src,
-                        // as if there are none then src must have contained the last piece.
-                        for x in [src.x, src.x + 1] {
-                            if !self.is_free(Pos { x, y: src.y - 1 }) {
+                        // We need only check the neighbours of src_rel,
+                        // as if there are none then src_rel must have contained the last piece.
+                        for x in [src_rel.x, src_rel.x + 1] {
+                            if !self.is_free_rel(Pos {
+                                x,
+                                y: src_rel.y - 1,
+                            }) {
                                 found = true;
                                 break;
                             }
@@ -646,22 +698,8 @@ impl Hive {
         None
     }
 
-    pub(crate) fn move_piece(&mut self, src: Pos, dst: Pos) -> Option<Piece> {
-        let offset = self.offset();
-        if let Some(piece) = self.pop(src, offset) {
-            self.push(dst, offset, piece);
-            Some(piece)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn place_piece(&mut self, at: Pos, piece: Piece) -> Option<()> {
-        self.push(at, self.offset(), piece)
-    }
-
-    pub(crate) fn take_piece(&mut self, at: Pos) -> Option<Piece> {
-        self.pop(at, self.offset())
+    pub(crate) fn get(&self, pos: WrapPos) -> &[Piece] {
+        &self.data[pos]
     }
 
     pub fn occupied(&self) -> impl Iterator<Item = Pos> + '_ {
@@ -670,7 +708,7 @@ impl Hive {
         let tr = self.tr.to_rel(offset);
         (bl.x..=(tr.x))
             .flat_map(move |x| (bl.y..=(tr.y)).map(move |y| Pos { x, y }))
-            .filter(move |p| !self.is_free(*p))
+            .filter(move |p| !self.is_free_rel(*p))
     }
 
     pub fn bounds(&self) -> (Pos, Pos) {
@@ -703,7 +741,11 @@ impl Hive {
             })
     }
 
-    pub(crate) fn is_free(&self, p: Pos) -> bool {
+    pub(crate) fn is_free(&self, p: WrapPos) -> bool {
+        self.get(p).is_empty()
+    }
+
+    pub(crate) fn is_free_rel(&self, p: Pos) -> bool {
         self[p].is_empty()
     }
 
@@ -711,7 +753,26 @@ impl Hive {
         self[p].len()
     }
 
-    pub(crate) fn neighbours(&self, p: Pos, exclude: Option<Pos>) -> impl Iterator<Item = &Piece> {
+    pub(crate) fn neighbours(
+        &self,
+        p: WrapPos,
+        exclude: Option<WrapPos>,
+    ) -> impl Iterator<Item = &Piece> {
+        p.neighbours().into_iter().filter_map(move |p| {
+            if let Some(e) = exclude {
+                if p == e {
+                    return None;
+                }
+            }
+            self.get(p).last()
+        })
+    }
+
+    pub(crate) fn neighbours_rel(
+        &self,
+        p: Pos,
+        exclude: Option<Pos>,
+    ) -> impl Iterator<Item = &Piece> {
         p.neighbours().into_iter().filter_map(move |p| {
             if let Some(e) = exclude {
                 if p == e {
@@ -745,7 +806,7 @@ impl Hive {
             for p in val
                 .neighbours()
                 .into_iter()
-                .filter(|&p| !self.is_free(p) && p != excluding)
+                .filter(|&p| !self.is_free_rel(p) && p != excluding)
             {
                 let dist = dists[val] + 1;
                 if dist < dists[p] {
@@ -766,11 +827,11 @@ impl Hive {
         }
         // find representatives of each group of neighbours.
         let mut ns = p.neighbours().to_vec();
-        ns.dedup_by_key(|n| self.is_free(*n));
-        if self.is_free(*ns.first().unwrap()) == self.is_free(*ns.last().unwrap()) {
+        ns.dedup_by_key(|n| self.is_free_rel(*n));
+        if self.is_free_rel(*ns.first().unwrap()) == self.is_free_rel(*ns.last().unwrap()) {
             ns.pop();
         }
-        ns.retain(|n| !self.is_free(*n));
+        ns.retain(|n| !self.is_free_rel(*n));
 
         if ns.len() <= 1 {
             return false;
@@ -785,12 +846,16 @@ impl Hive {
         false
     }
 
+    pub(crate) fn is_structural_abs(&self, p: WrapPos) -> bool {
+        self.is_structural(p.to_rel(self.offset()))
+    }
+
     pub(crate) fn find_structural(&self) -> PosMap<bool> {
         let mut artic_points = PosMap::default();
 
         let start = self.pos_in_hive.to_rel(self.offset());
 
-        if self.is_free(start) {
+        if self.is_free_rel(start) {
             // The hive is empty.
             return artic_points;
         }
@@ -828,7 +893,7 @@ impl Hive {
 
         for dir in Dir::dirs() {
             let new_pos = pos.go(dir);
-            if self.is_free(new_pos) {
+            if self.is_free_rel(new_pos) {
                 continue;
             }
             if !visited[new_pos] {
@@ -861,12 +926,12 @@ impl Hive {
 
     fn queen_dests(&self, p: Pos) -> Vec<Pos> {
         let ns = p.neighbours();
-        let surrounding = ns.map(|p| self.is_free(p));
+        let surrounding = ns.map(|p| self.is_free_rel(p));
         let mut out = Vec::new();
         for d in 0..6 {
             if surrounding[d]
                 && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                && self.neighbours(ns[d], Some(p)).next().is_some()
+                && self.neighbours_rel(ns[d], Some(p)).next().is_some()
             {
                 debug_assert!(self.may_move_queen(p, ns[d]));
                 out.push(ns[d]);
@@ -877,14 +942,14 @@ impl Hive {
 
     fn may_move_queen(&self, src: Pos, dst: Pos) -> bool {
         let ns = src.neighbours();
-        let surrounding = ns.map(|p| self.is_free(p));
+        let surrounding = ns.map(|p| self.is_free_rel(p));
         let d = match ns.into_iter().position(|p| p == dst) {
             Some(d) => d,
             None => return false,
         };
         return surrounding[d]
             && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-            && self.neighbours(ns[d], Some(src)).next().is_some();
+            && self.neighbours_rel(ns[d], Some(src)).next().is_some();
     }
 
     fn beetle_dests(&self, p: Pos) -> Vec<Pos> {
@@ -895,7 +960,7 @@ impl Hive {
         for d in 0..6 {
             if surrounding[d].max(src_height)
                 >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
-                && (src_height > 0 || self.neighbours(ns[d], Some(p)).next().is_some())
+                && (src_height > 0 || self.neighbours_rel(ns[d], Some(p)).next().is_some())
             {
                 debug_assert!(self.may_move_beetle(p, ns[d]));
                 out.push(ns[d]);
@@ -914,7 +979,7 @@ impl Hive {
         };
         return surrounding[d].max(src_height)
             >= surrounding[(d + 5) % 6].min(surrounding[(d + 1) % 6])
-            && (src_height > 0 || self.neighbours(ns[d], Some(src)).next().is_some());
+            && (src_height > 0 || self.neighbours_rel(ns[d], Some(src)).next().is_some());
     }
 
     fn hopper_dests(&self, p: Pos) -> Vec<Pos> {
@@ -922,10 +987,10 @@ impl Hive {
             .into_iter()
             .filter_map(|d| {
                 let mut pos = p.go(d);
-                if self.is_free(pos) {
+                if self.is_free_rel(pos) {
                     return None;
                 }
-                while !self.is_free(pos) {
+                while !self.is_free_rel(pos) {
                     pos = pos.go(d);
                 }
                 debug_assert!(self.may_move_hopper(p, pos));
@@ -946,13 +1011,13 @@ impl Hive {
 
         let mut pos = src.go(dir);
         for _ in 1..dist {
-            if self.is_free(pos) {
+            if self.is_free_rel(pos) {
                 return false;
             }
             pos = pos.go(dir);
         }
 
-        self.is_free(pos)
+        self.is_free_rel(pos)
     }
 
     fn ant_dests(&self, src: Pos) -> Vec<Pos> {
@@ -963,12 +1028,12 @@ impl Hive {
         to_consider.push_back(src);
         while let Some(pos) = to_consider.pop_front() {
             let ns = pos.neighbours();
-            let surrounding = ns.map(|p| self.is_free(p) || p == src);
+            let surrounding = ns.map(|p| self.is_free_rel(p) || p == src);
             for d in 0..6 {
                 if !visited.contains(&ns[d])
                     && surrounding[d]
                     && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                    && self.neighbours(ns[d], Some(src)).next().is_some()
+                    && self.neighbours_rel(ns[d], Some(src)).next().is_some()
                 {
                     visited.insert(ns[d]);
                     to_consider.push_back(ns[d]);
@@ -1003,11 +1068,11 @@ impl Hive {
             }
 
             let ns = val.neighbours();
-            let surrounding = ns.map(|p| self.is_free(p) || p == src);
+            let surrounding = ns.map(|p| self.is_free_rel(p) || p == src);
             for d in 0..6 {
                 if surrounding[d]
                     && (surrounding[(d + 5) % 6] || surrounding[(d + 1) % 6])
-                    && self.neighbours(ns[d], Some(src)).next().is_some()
+                    && self.neighbours_rel(ns[d], Some(src)).next().is_some()
                 {
                     let p = ns[d];
                     let dist = dists[val] + 1;
@@ -1029,7 +1094,7 @@ impl Hive {
         let mut reach_2 = AHashSet::new();
         let mut reach_3 = AHashSet::new();
         let ns = p.neighbours();
-        let surrounding: Vec<bool> = ns.into_iter().map(|pos| self.is_free(pos)).collect();
+        let surrounding: Vec<bool> = ns.into_iter().map(|pos| self.is_free_rel(pos)).collect();
         for d in 0..6 {
             if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
                 reach_1.insert(ns[d]);
@@ -1039,7 +1104,13 @@ impl Hive {
             let ns = pos.neighbours();
             let surrounding: Vec<bool> = ns
                 .iter()
-                .map(|&pos| if pos == p { true } else { self.is_free(pos) })
+                .map(|&pos| {
+                    if pos == p {
+                        true
+                    } else {
+                        self.is_free_rel(pos)
+                    }
+                })
                 .collect();
             for d in 0..6 {
                 if ns[d] != p
@@ -1055,7 +1126,13 @@ impl Hive {
             let ns = pos.neighbours();
             let surrounding: Vec<bool> = ns
                 .iter()
-                .map(|&pos| if pos == p { true } else { self.is_free(pos) })
+                .map(|&pos| {
+                    if pos == p {
+                        true
+                    } else {
+                        self.is_free_rel(pos)
+                    }
+                })
                 .collect();
             for d in 0..6 {
                 if ns[d] != p
@@ -1095,7 +1172,7 @@ impl Hive {
             }
 
             let ns = val.neighbours();
-            let surrounding = ns.map(|p| self.is_free(p) || p == src);
+            let surrounding = ns.map(|p| self.is_free_rel(p) || p == src);
             for d in 0..6 {
                 if surrounding[d] && (surrounding[(d + 5) % 6] != surrounding[(d + 1) % 6]) {
                     let p = ns[d];
@@ -1113,22 +1190,31 @@ impl Hive {
         false
     }
 
-    pub(crate) fn may_move(&self, typ: PieceType, src: Pos, dst: Pos) -> bool {
-        if self.is_structural(src) {
+    pub(crate) fn may_move(&self, typ: PieceType, src: WrapPos, dst: WrapPos) -> bool {
+        let offset = self.offset();
+        let src_rel = src.to_rel(offset);
+        let dst_rel = dst.to_rel(offset);
+
+        if self.is_structural(src_rel) {
             return false;
         }
         match typ {
-            PieceType::Queen => self.may_move_queen(src, dst),
-            PieceType::Beetle => self.may_move_beetle(src, dst),
-            PieceType::Hopper => self.may_move_hopper(src, dst),
-            PieceType::Ant => self.may_move_ant(src, dst),
-            PieceType::Spider => self.may_move_spider(src, dst),
+            PieceType::Queen => self.may_move_queen(src_rel, dst_rel),
+            PieceType::Beetle => self.may_move_beetle(src_rel, dst_rel),
+            PieceType::Hopper => self.may_move_hopper(src_rel, dst_rel),
+            PieceType::Ant => self.may_move_ant(src_rel, dst_rel),
+            PieceType::Spider => self.may_move_spider(src_rel, dst_rel),
         }
     }
 
-    pub(crate) fn may_place(&self, col: Colour, dst: Pos) -> bool {
-        self.neighbours(dst, None).any(|_| true)
-            && self.neighbours(dst, None).all(|piece| piece.col() == col)
+    pub(crate) fn may_place(&self, col: Colour, dst: WrapPos) -> bool {
+        let offset = self.offset();
+        let dst_rel = dst.to_rel(offset);
+
+        self.neighbours_rel(dst_rel, None).any(|_| true)
+            && self
+                .neighbours_rel(dst_rel, None)
+                .all(|piece| piece.col() == col)
     }
 
     pub(crate) fn destinations(&self, p: Pos, typ: PieceType) -> Vec<Pos> {

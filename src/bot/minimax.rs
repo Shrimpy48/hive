@@ -331,16 +331,18 @@ impl Bot {
             // Search the principle variation using normal alpha-beta negamax.
             // This will give us a bound against which to check the other moves.
             let pv = moves[0];
+            let pv_abs = game.wrap_move(pv);
             let mut best = 0;
-            game.make_move_unchecked(pv);
+            game.make_move_unchecked(pv_abs);
             let mut value = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move_unchecked(pv);
+            game.unmake_move_unchecked(pv_abs);
             a = a.max(value);
 
             if a < b {
                 // Search the remaining moves to see if they exceed the bound.
                 for (i, m) in moves[1..].iter().enumerate() {
-                    game.make_move_unchecked(*m);
+                    let m_ = game.wrap_move(*m);
+                    game.make_move_unchecked(m_);
                     let mut val;
                     if let Value::Value(a_) = a {
                         // Search with a null window at first.
@@ -354,7 +356,7 @@ impl Bot {
                         // We have no good bound yet, so we have to do a full search.
                         val = -self.val(game, depth - 1, -b, -a);
                     }
-                    game.unmake_move_unchecked(*m);
+                    game.unmake_move_unchecked(m_);
                     if value < val {
                         value = val;
                         best = i + 1;
@@ -394,9 +396,10 @@ impl Bot {
         let mut value = Value::Loss;
         let mut best = 0;
         for (i, m) in moves.iter().enumerate() {
-            game.make_move_unchecked(*m);
+            let m_ = game.wrap_move(*m);
+            game.make_move_unchecked(m_);
             let val = -self.val(game, depth - 1, -b, -a);
-            game.unmake_move_unchecked(*m);
+            game.unmake_move_unchecked(m_);
             if value < val {
                 value = val;
                 best = i;

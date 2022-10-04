@@ -59,6 +59,13 @@ pub enum Move {
     Skip,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum WrapMove {
+    Place { piece: PieceType, dst: WrapPos },
+    Move { src: WrapPos, dst: WrapPos },
+    Skip,
+}
+
 impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -125,8 +132,8 @@ pub struct Game {
     black_hand: Hand,
     turn: Colour,
     turn_counter: u32,
-    white_queen: Option<Pos>,
-    black_queen: Option<Pos>,
+    white_queen: Option<WrapPos>,
+    black_queen: Option<WrapPos>,
     ztable: ZobristTable,
     reptable: AHashMap<u64, u8>,
     current_reps: u8,
@@ -141,20 +148,20 @@ impl Game {
         self.turn
     }
 
-    pub(crate) fn white_queen(&self) -> Option<Pos> {
+    pub(crate) fn white_queen(&self) -> Option<WrapPos> {
         self.white_queen
     }
 
-    pub(crate) fn black_queen(&self) -> Option<Pos> {
+    pub(crate) fn black_queen(&self) -> Option<WrapPos> {
         self.black_queen
     }
 
-    pub fn is_legal(&self, m: Move) -> bool {
+    fn is_legal_abs(&self, m: WrapMove) -> bool {
         if self.over() {
             return false;
         }
         match m {
-            Move::Place { piece, dst } => {
+            WrapMove::Place { piece, dst } => {
                 if self.current_queen().is_none()
                     && self.turn_counter >= 6
                     && piece != PieceType::Queen
@@ -165,28 +172,62 @@ impl Game {
                     return false;
                 }
                 if self.turn_counter == 0 {
-                    return dst == Pos::default();
+                    return dst == WrapPos::default();
                 }
                 if self.turn_counter == 1 {
-                    return Pos::default().neighbours().contains(&dst);
+                    return WrapPos::default().neighbours().contains(&dst);
                 }
-                if !self.hive.is_free(dst) {
+                if !self.hive.get(dst).is_empty() {
                     return false;
                 }
                 self.hive.may_place(self.turn(), dst)
             }
-            Move::Move { src, dst } => {
-                if let Some(p) = self.hive[src].last() {
+            WrapMove::Move { src, dst } => {
+                if let Some(p) = self.hive.get(src).last() {
                     if p.col() == self.turn() {
                         return self.hive.may_move(p.typ(), src, dst);
                     }
                 }
                 false
             }
-            Move::Skip => {
+            WrapMove::Skip => {
                 // TODO optimise
-                self.moves() == [m]
+                self.moves() == [Move::Skip]
             }
+        }
+    }
+
+    pub fn is_legal(&self, m: Move) -> bool {
+        self.is_legal_abs(self.wrap_move(m))
+    }
+
+    pub fn wrap_move(&self, m: Move) -> WrapMove {
+        let offset = self.hive.offset();
+        match m {
+            Move::Move { src, dst } => WrapMove::Move {
+                src: src.to_abs(offset),
+                dst: dst.to_abs(offset),
+            },
+            Move::Place { piece, dst } => WrapMove::Place {
+                piece,
+                dst: dst.to_abs(offset),
+            },
+            Move::Skip => WrapMove::Skip,
+        }
+    }
+
+    pub fn unwrap_move(&self, m: WrapMove) -> Move {
+        let offset = self.hive.offset();
+        match m {
+            WrapMove::Move { src, dst } => Move::Move {
+                src: src.to_rel(offset),
+                dst: dst.to_rel(offset),
+            },
+            WrapMove::Place { piece, dst } => Move::Place {
+                piece,
+                dst: dst.to_rel(offset),
+            },
+            WrapMove::Skip => Move::Skip,
         }
     }
 
@@ -195,18 +236,18 @@ impl Game {
     // usual way to unmake a move is "undoing" a stored valid move,
     // so this only guarantees that unmaking will not panic
     // or violate hive connectivity.
-    fn is_unmake_safe(&self, m: Move) -> bool {
+    fn is_unmake_safe(&self, m: WrapMove) -> bool {
         match m {
-            Move::Place { piece, dst } => {
-                if let [p] = self.hive[dst] {
+            WrapMove::Place { piece, dst } => {
+                if let [p] = self.hive.get(dst) {
                     if p.typ() == piece && p.col() != self.turn() {
-                        return !self.hive.is_structural(dst);
+                        return !self.hive.is_structural_abs(dst);
                     }
                 }
                 false
             }
-            Move::Move { src, dst } => {
-                if let Some(p) = self.hive[dst].last() {
+            WrapMove::Move { src, dst } => {
+                if let Some(p) = self.hive.get(dst).last() {
                     if p.col() != self.turn() {
                         // All piece moves are reversible.
                         return self.hive.may_move(p.typ(), dst, src);
@@ -214,12 +255,12 @@ impl Game {
                 }
                 false
             }
-            Move::Skip => true,
+            WrapMove::Skip => true,
         }
     }
 
-    pub fn make_move(&mut self, m: Move) -> Option<()> {
-        if self.is_legal(m) {
+    pub fn make_move(&mut self, m: WrapMove) -> Option<()> {
+        if self.is_legal_abs(m) {
             self.make_move_impl(m);
             Some(())
         } else {
@@ -227,7 +268,7 @@ impl Game {
         }
     }
 
-    pub fn unmake_move(&mut self, m: Move) -> Option<()> {
+    pub fn unmake_move(&mut self, m: WrapMove) -> Option<()> {
         if self.is_unmake_safe(m) {
             self.unmake_move_impl(m);
             Some(())
@@ -236,32 +277,33 @@ impl Game {
         }
     }
 
-    pub fn make_move_unchecked(&mut self, m: Move) {
-        debug_assert!(self.is_legal(m));
+    pub fn make_move_unchecked(&mut self, m: WrapMove) {
+        debug_assert!(self.is_legal_abs(m));
         self.make_move_impl(m);
     }
 
-    pub fn unmake_move_unchecked(&mut self, m: Move) {
+    pub fn unmake_move_unchecked(&mut self, m: WrapMove) {
         debug_assert!(self.is_unmake_safe(m));
         self.unmake_move_impl(m);
     }
 
-    fn make_move_impl(&mut self, m: Move) {
+    fn make_move_impl(&mut self, m: WrapMove) {
         match m {
-            Move::Place { piece, dst } => {
+            WrapMove::Place { piece, dst } => {
                 self.current_hand_mut().remove(piece);
-                self.hive.place_piece(dst, Piece::new(piece, self.turn));
+                self.hive.push(dst, Piece::new(piece, self.turn));
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
             }
-            Move::Move { src, dst } => {
-                let piece = self.hive.move_piece(src, dst).unwrap();
+            WrapMove::Move { src, dst } => {
+                let piece = self.hive.pop(src).unwrap();
+                self.hive.push(dst, piece).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(dst);
                 }
             }
-            Move::Skip => {}
+            WrapMove::Skip => {}
         }
         self.turn = self.turn.next();
         self.turn_counter += 1;
@@ -270,31 +312,37 @@ impl Game {
         self.current_reps = *self.reptable.get(&key).unwrap();
     }
 
-    fn unmake_move_impl(&mut self, m: Move) {
-        // FIXME: this implementation uses the wrong offset.
-        // Unmakable moves probably need absolute positions to implement efficiently.
+    fn unmake_move_impl(&mut self, m: WrapMove) {
         let key = self.hash_key();
         *self.reptable.get_mut(&key).unwrap() -= 1;
         self.turn_counter -= 1;
         self.turn = self.turn.next();
         match m {
-            Move::Place { piece, dst } => {
-                self.hive.take_piece(dst).unwrap();
+            WrapMove::Place { piece, dst } => {
+                self.hive.pop(dst).unwrap();
                 if piece == PieceType::Queen {
                     *self.current_queen_mut() = None;
                 }
                 self.current_hand_mut().add(piece);
             }
-            Move::Move { src, dst } => {
-                let piece = self.hive.move_piece(dst, src).unwrap();
+            WrapMove::Move { src, dst } => {
+                let piece = self.hive.pop(dst).unwrap();
+                self.hive.push(src, piece).unwrap();
                 if piece.typ() == PieceType::Queen {
                     *self.current_queen_mut() = Some(src);
                 }
             }
-            Move::Skip => {}
+            WrapMove::Skip => {}
         }
         let key = self.hash_key();
         self.current_reps = *self.reptable.get(&key).unwrap();
+    }
+
+    pub fn moves_abs(&self) -> Vec<WrapMove> {
+        self.moves()
+            .into_iter()
+            .map(|m| self.wrap_move(m))
+            .collect()
     }
 
     pub fn moves(&self) -> Vec<Move> {
@@ -378,10 +426,10 @@ impl Game {
             self.hive
                 .occupied()
                 .flat_map(|p| p.neighbours().into_iter())
-                .filter(|&p| self.hive.is_free(p))
+                .filter(|&p| self.hive.is_free_rel(p))
                 .filter(|&p| {
                     self.hive
-                        .neighbours(p, None)
+                        .neighbours_rel(p, None)
                         .all(|piece| piece.col() == self.turn)
                 })
                 .collect()
@@ -459,7 +507,7 @@ impl Game {
         }
     }
 
-    fn current_queen_mut(&mut self) -> &mut Option<Pos> {
+    fn current_queen_mut(&mut self) -> &mut Option<WrapPos> {
         match self.turn {
             Colour::White => &mut self.white_queen,
             Colour::Black => &mut self.black_queen,
@@ -473,7 +521,7 @@ impl Game {
         }
     }
 
-    pub fn current_queen(&self) -> &Option<Pos> {
+    pub fn current_queen(&self) -> &Option<WrapPos> {
         match self.turn {
             Colour::White => &self.white_queen,
             Colour::Black => &self.black_queen,
@@ -602,7 +650,7 @@ mod test {
                 }
             }
             match moves.choose(&mut rng) {
-                Some(&m) => game.make_move(m).unwrap(),
+                Some(&m) => game.make_move(game.wrap_move(m)).unwrap(),
                 None => return,
             }
         }

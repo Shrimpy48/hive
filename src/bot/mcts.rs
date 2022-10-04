@@ -8,7 +8,7 @@ use std::f64::consts::LN_2;
 use std::rc::{Rc, Weak};
 use std::time::Instant;
 
-use crate::game::{Game, Move, Outcome};
+use crate::game::{Game, Move, Outcome, WrapMove};
 
 const EXPLORE_C: f64 = 1.0;
 const BATCH_SIZE: u32 = 1;
@@ -19,15 +19,15 @@ const BATCH_SIZE: u32 = 1;
 struct SearchNode {
     simulations: u64,
     wins: u64,
-    parent: Option<(Move, Weak<RefCell<SearchNode>>)>,
-    children: HashMap<Move, Rc<RefCell<SearchNode>>>,
-    unexpanded: Vec<Move>,
+    parent: Option<(WrapMove, Weak<RefCell<SearchNode>>)>,
+    children: HashMap<WrapMove, Rc<RefCell<SearchNode>>>,
+    unexpanded: Vec<WrapMove>,
 }
 
 impl SearchNode {
     fn new() -> Self {
         let game = Game::new();
-        let unexpanded = game.moves();
+        let unexpanded = game.moves_abs();
         Self {
             children: Default::default(),
             parent: None,
@@ -65,11 +65,11 @@ impl SearchNode {
     }
 
     /// Create a new child of this SearchNode.
-    fn after_move(this: Rc<RefCell<Self>>, game: &mut Game, made: Move) -> Rc<RefCell<Self>> {
+    fn after_move(this: Rc<RefCell<Self>>, game: &mut Game, made: WrapMove) -> Rc<RefCell<Self>> {
         let out;
         {
             game.make_move_unchecked(made);
-            let unexpanded = game.moves();
+            let unexpanded = game.moves_abs();
             out = Rc::new(RefCell::new(Self {
                 children: Default::default(),
                 parent: Some((made, Rc::downgrade(&this))),
@@ -120,6 +120,7 @@ impl Bot {
     }
 
     pub fn discard_others(&mut self, made: Move) {
+        let made = self.game.wrap_move(made);
         // Making sure that the borrow is dropped before after_move is called
         let new_subtree = self.subtree.borrow().children.get(&made).map(Rc::clone);
         if let Some(node) = new_subtree {
@@ -141,7 +142,7 @@ impl Bot {
             }
             if Instant::now() >= deadline {
                 eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
-                return self.best_move();
+                return self.game.unwrap_move(self.best_move());
             }
         }
     }
@@ -201,7 +202,7 @@ impl Bot {
         while !self.game.over() {
             let m = *self
                 .game
-                .moves()
+                .moves_abs()
                 .choose(&mut self.rng)
                 .expect("no moves to make");
             self.game.make_move_unchecked(m);
@@ -232,7 +233,7 @@ impl Bot {
     }
 
     /// Panics if no search has been performed
-    fn best_move(&self) -> Move {
+    fn best_move(&self) -> WrapMove {
         *self
             .subtree
             .borrow()

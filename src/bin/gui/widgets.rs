@@ -302,14 +302,15 @@ pub(crate) fn hive_ui(
                         Selection::InHand(piece) => hive::Move::Place { piece, dst: pos },
                         Selection::InHive(src) => hive::Move::Move { src, dst: pos },
                     };
-                    game.make_move(selected_move).expect("illegal move entered");
+                    game.make_move(game.wrap_move(selected_move))
+                        .expect("illegal move entered");
                     engine_send
                         .send(engine::Msg::MakeMove(selected_move))
                         .unwrap();
                     // Skip until a player can move or a draw is triggered.
                     // This relies on the fact that a skip is legal only when
                     // a player has no legal moves and that repetitions are detected.
-                    while game.make_move(hive::Move::Skip).is_some() {
+                    while game.make_move(hive::WrapMove::Skip).is_some() {
                         engine_send
                             .send(engine::Msg::MakeMove(hive::Move::Skip))
                             .unwrap();
