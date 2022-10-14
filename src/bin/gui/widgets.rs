@@ -235,7 +235,7 @@ pub(crate) fn hive_ui(
                 }
                 shapes.push((
                     src,
-                    true,
+                    false,
                     selection_shape(
                         radius,
                         egui::Pos2::default() + grid_size * hex_offset(src),
