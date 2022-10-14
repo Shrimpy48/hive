@@ -4,17 +4,12 @@ use crate::small_arrayvec::SmallArrayVec;
 use ahash::AHashSet;
 use enum_map::Enum;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
-use std::collections::VecDeque;
+use std::collections::{BinaryHeap, VecDeque};
 use std::fmt;
 use std::num::ParseIntError;
-use std::ops::AddAssign;
-use std::ops::Index;
-use std::ops::IndexMut;
-use std::ops::Neg;
-use std::ops::SubAssign;
-use std::ops::{Add, Sub};
+use std::ops::{Add, Index, IndexMut, Sub};
 use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, IntoPrimitive, TryFromPrimitive)]
@@ -331,10 +326,19 @@ impl Add for WrapPos {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Self(Pos {
-            x: (self.0.x + rhs.0.x) % BOARD_SIZE,
-            y: (self.0.y + rhs.0.y) % BOARD_SIZE,
-        })
+        // Self(Pos {
+        //     x: (self.0.x + rhs.0.x) % BOARD_SIZE,
+        //     y: (self.0.y + rhs.0.y) % BOARD_SIZE,
+        // })
+        let mut x = self.0.x + rhs.0.x;
+        if x >= BOARD_SIZE {
+            x -= BOARD_SIZE;
+        }
+        let mut y = self.0.y + rhs.0.y;
+        if y >= BOARD_SIZE {
+            y -= BOARD_SIZE;
+        }
+        Self(Pos { x, y })
     }
 }
 
@@ -342,10 +346,21 @@ impl Sub for WrapPos {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        Self(Pos {
-            x: (BOARD_SIZE + self.0.x - rhs.0.x) % BOARD_SIZE,
-            y: (BOARD_SIZE + self.0.y - rhs.0.y) % BOARD_SIZE,
-        })
+        // Self(Pos {
+        //     x: (BOARD_SIZE + self.0.x - rhs.0.x) % BOARD_SIZE,
+        //     y: (BOARD_SIZE + self.0.y - rhs.0.y) % BOARD_SIZE,
+        // })
+        let x = if self.0.x >= rhs.0.x {
+            self.0.x - rhs.0.x
+        } else {
+            BOARD_SIZE - rhs.0.x + self.0.x
+        };
+        let y = if self.0.y >= rhs.0.y {
+            self.0.y - rhs.0.y
+        } else {
+            BOARD_SIZE - rhs.0.y + self.0.y
+        };
+        Self(Pos { x, y })
     }
 }
 
