@@ -156,25 +156,30 @@ fn indicator(radius: f32, centre: egui::Pos2) -> epaint::Shape {
 }
 
 fn hex_offset(pos: hive::Pos) -> egui::Vec2 {
+    let x_norm = pos.x as f32 - hive::Pos::default().x as f32;
+    let y_norm = pos.y as f32 - hive::Pos::default().y as f32;
     egui::Vec2::new(
-        pos.x as f32 * std::f32::consts::FRAC_PI_6.cos(),
-        -(pos.y as f32) - pos.x as f32 * std::f32::consts::FRAC_PI_6.sin(),
+        x_norm * std::f32::consts::FRAC_PI_6.cos(),
+        -y_norm - x_norm * std::f32::consts::FRAC_PI_6.sin(),
     )
 }
 
-pub(crate) fn hive_ui(
+fn hive_ui(
     ui: &mut egui::Ui,
     icons: &EnumMap<hive::PieceType, egui_extras::RetainedImage>,
     game: &mut hive::Game,
     selection: &mut Selection,
     engine_send: &mpsc::Sender<engine::Msg>,
+    engine_move: hive::Move,
+    engine_arrow_start: &mut Option<egui::Pos2>,
+    engine_arrow_end: &mut Option<egui::Pos2>,
 ) -> egui::Response {
     let radius = ui.spacing().interact_size.x;
     let border = ui.spacing().button_padding.x;
     let grid_size = 2. * radius;
 
     // The shapes to draw and handle clicks for, in drawing order.
-    let mut shapes: Vec<_> = game
+    let mut drawlist: Vec<_> = game
         .hive()
         .tiles()
         .map(|(pos, piece)| {
@@ -206,7 +211,7 @@ pub(crate) fn hive_ui(
                     || game.turn_counter() < 6
                     || piece_type == hive::PieceType::Queen
                 {
-                    shapes.extend(game.place_locations().into_iter().map(|pos| {
+                    drawlist.extend(game.place_locations().into_iter().map(|pos| {
                         (
                             pos,
                             true,
@@ -221,7 +226,7 @@ pub(crate) fn hive_ui(
             }
             Selection::InHive(src) => {
                 if game.current_queen().is_some() {
-                    shapes.extend(game.destinations(src).into_iter().map(|pos| {
+                    drawlist.extend(game.destinations(src).into_iter().map(|pos| {
                         (
                             pos,
                             true,
@@ -233,7 +238,8 @@ pub(crate) fn hive_ui(
                         )
                     }));
                 }
-                shapes.push((
+                // Finally, add selected piece outline.
+                drawlist.push((
                     src,
                     false,
                     selection_shape(
@@ -247,7 +253,7 @@ pub(crate) fn hive_ui(
         }
     }
 
-    let bounding_rect = shapes
+    let bounding_rect = drawlist
         .iter()
         .map(|(_, _, s, _)| s.visual_bounding_rect())
         .reduce(|a, b| a.union(b))
@@ -275,17 +281,32 @@ pub(crate) fn hive_ui(
 
     let painter_centre = response.rect.center();
     let hive_centre = bounding_rect.center();
+    let painter_offset = painter_centre - hive_centre;
+
+    match engine_move {
+        hive::Move::Move { src, dst } => {
+            let src_hive_pos = egui::Pos2::default() + grid_size * hex_offset(src);
+            let dst_hive_pos = egui::Pos2::default() + grid_size * hex_offset(dst);
+            *engine_arrow_start = Some(src_hive_pos + painter_offset);
+            *engine_arrow_end = Some(dst_hive_pos + painter_offset);
+        }
+        hive::Move::Place { dst, .. } => {
+            let dst_hive_pos = egui::Pos2::default() + grid_size * hex_offset(dst);
+            *engine_arrow_end = Some(dst_hive_pos + painter_offset);
+        }
+        hive::Move::Skip => {}
+    }
 
     // Draw the shapes.
-    for (_, _, shape, icon) in shapes.iter_mut() {
-        shape.translate(painter_centre - hive_centre);
-        icon.translate(painter_centre - hive_centre);
+    for (_, _, shape, icon) in drawlist.iter_mut() {
+        shape.translate(painter_offset);
+        icon.translate(painter_offset);
         painter.add(shape.clone());
         painter.add(icon.clone());
     }
 
     // Handle clicks in reverse drawing order.
-    for (pos, is_destination, shape, _) in shapes.into_iter().rev() {
+    for (pos, is_destination, shape, _) in drawlist.into_iter().rev() {
         if let Some(p) = click_pos {
             if shape.visual_bounding_rect().contains(p) {
                 if !is_destination {
@@ -331,44 +352,37 @@ pub(crate) fn hive_ui(
     response
 }
 
-pub(crate) fn hive<'a>(
-    icons: &'a EnumMap<hive::PieceType, egui_extras::RetainedImage>,
-    game: &'a mut hive::Game,
-    selection: &'a mut Selection,
-    engine_send: &'a mpsc::Sender<engine::Msg>,
-) -> impl egui::Widget + 'a {
-    move |ui: &mut egui::Ui| hive_ui(ui, icons, game, selection, engine_send)
-}
-
-pub(crate) fn hand_ui(
+fn hand_ui(
     ui: &mut egui::Ui,
     icons: &EnumMap<hive::PieceType, egui_extras::RetainedImage>,
     hand_colour: hive::Colour,
     hand: &hive::Hand,
     turn: hive::Colour,
     selection: &mut Selection,
+    engine_move: hive::Move,
+    engine_arrow_start: &mut Option<egui::Pos2>,
 ) -> egui::Response {
     let radius = ui.spacing().interact_size.x;
     let border = ui.spacing().button_padding.x;
     let step = 2. * radius + ui.spacing().item_spacing.x;
 
-    let mut shapes: Vec<_> = Vec::with_capacity(6);
+    let mut drawlist: Vec<_> = Vec::with_capacity(6);
     for (i, piece_type) in hand.pieces().enumerate() {
         let pos = egui::Pos2::default() + i as f32 * egui::Vec2::new(step, 0.);
-        shapes.push((
+        drawlist.push((
             piece_type,
             piece_shape(hand_colour, radius, pos),
             piece_icon(icons, ui.ctx(), piece_type, radius, pos),
         ));
         if hand_colour == turn && *selection == Selection::InHand(piece_type) {
-            shapes.push((
+            drawlist.push((
                 piece_type,
                 selection_shape(radius, pos, border),
                 egui::Shape::Noop,
             ));
         }
     }
-    let bounding_rect = shapes
+    let bounding_rect = drawlist
         .iter()
         .map(|(_, s, _)| s.visual_bounding_rect())
         .reduce(|a, b| a.union(b))
@@ -395,10 +409,17 @@ pub(crate) fn hand_ui(
     };
 
     let painter_centre = response.rect.center();
-    let hand_centre = bounding_rect.center();
-    for (piece_type, mut shape, mut icon) in shapes {
-        shape.translate(painter_centre - hand_centre);
-        icon.translate(painter_centre - hand_centre);
+    let hive_centre = bounding_rect.center();
+    let painter_offset = painter_centre - hive_centre;
+
+    for (piece_type, mut shape, mut icon) in drawlist {
+        shape.translate(painter_offset);
+        icon.translate(painter_offset);
+        if let hive::Move::Place { piece, .. } = engine_move {
+            if hand_colour == turn && piece == piece_type {
+                *engine_arrow_start = Some(shape.visual_bounding_rect().center());
+            }
+        }
         if let Some(p) = click_pos {
             if hand_colour == turn && shape.visual_bounding_rect().contains(p) {
                 *selection = Selection::InHand(piece_type);
@@ -417,12 +438,85 @@ pub(crate) fn hand_ui(
     response
 }
 
-pub(crate) fn hand<'a>(
+pub(crate) fn game_ui(
+    ui: &mut egui::Ui,
+    icons: &EnumMap<hive::PieceType, egui_extras::RetainedImage>,
+    game: &mut hive::Game,
+    selection: &mut Selection,
+    engine_send: &mpsc::Sender<engine::Msg>,
+    engine_move: hive::Move,
+) -> egui::Response {
+    let mut engine_arrow_start = None;
+    let mut engine_arrow_end = None;
+
+    let response = egui::TopBottomPanel::top("black hand")
+        .show_inside(ui, |ui| {
+            ui.centered_and_justified(|ui| {
+                hand_ui(
+                    ui,
+                    icons,
+                    hive::Colour::Black,
+                    game.black_hand(),
+                    game.turn(),
+                    selection,
+                    engine_move,
+                    &mut engine_arrow_start,
+                );
+            });
+        })
+        .response
+        | egui::TopBottomPanel::bottom("white hand")
+            .show_inside(ui, |ui| {
+                ui.centered_and_justified(|ui| {
+                    hand_ui(
+                        ui,
+                        icons,
+                        hive::Colour::White,
+                        game.white_hand(),
+                        game.turn(),
+                        selection,
+                        engine_move,
+                        &mut engine_arrow_start,
+                    );
+                });
+            })
+            .response
+        | egui::CentralPanel::default()
+            .show_inside(ui, |ui| {
+                egui::ScrollArea::both().show(ui, |ui| {
+                    ui.centered_and_justified(|ui| {
+                        hive_ui(
+                            ui,
+                            icons,
+                            game,
+                            selection,
+                            engine_send,
+                            engine_move,
+                            &mut engine_arrow_start,
+                            &mut engine_arrow_end,
+                        );
+                    });
+                });
+            })
+            .response;
+
+    if let (Some(start), Some(end)) = (engine_arrow_start, engine_arrow_end) {
+        ui.painter().arrow(
+            start,
+            end - start,
+            egui::Stroke::new(2., egui::Color32::TEMPORARY_COLOR),
+        );
+    }
+
+    response
+}
+
+pub(crate) fn game<'a>(
     icons: &'a EnumMap<hive::PieceType, egui_extras::RetainedImage>,
-    hand_colour: hive::Colour,
-    hand: &'a hive::Hand,
-    turn: hive::Colour,
+    game: &'a mut hive::Game,
     selection: &'a mut Selection,
+    engine_send: &'a mpsc::Sender<engine::Msg>,
+    engine_move: hive::Move,
 ) -> impl egui::Widget + 'a {
-    move |ui: &mut egui::Ui| hand_ui(ui, icons, hand_colour, hand, turn, selection)
+    move |ui: &mut egui::Ui| game_ui(ui, icons, game, selection, engine_send, engine_move)
 }

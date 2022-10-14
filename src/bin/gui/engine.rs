@@ -11,19 +11,21 @@ pub enum Msg {
     MakeMove(Move),
 }
 
-pub struct Engine {
+pub struct Engine<F> {
     running: bool,
     recv: mpsc::Receiver<Msg>,
     send: Arc<RwLock<Move>>,
+    notify: F,
     bot: Bot,
 }
 
-impl Engine {
-    pub fn new(recv: mpsc::Receiver<Msg>, send: Arc<RwLock<Move>>) -> Self {
+impl<F: FnMut()> Engine<F> {
+    pub fn new(recv: mpsc::Receiver<Msg>, send: Arc<RwLock<Move>>, notify: F) -> Self {
         Self {
             running: false,
             recv,
             send,
+            notify,
             bot: Bot::default(),
         }
     }
@@ -42,10 +44,11 @@ impl Engine {
                     Err(mpsc::TryRecvError::Empty) => {}
                 }
 
-                let best_move = self.bot.mcts(Instant::now() + Duration::from_secs(1));
+                let best_move = self.bot.mcts(Instant::now() + Duration::from_millis(250));
                 // Only block the UI thread if something has actually changed.
                 if *self.send.read().unwrap() != best_move {
                     *self.send.write().unwrap() = best_move;
+                    (self.notify)();
                 }
             } else {
                 // Just listen for messages

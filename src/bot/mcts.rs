@@ -141,7 +141,7 @@ impl Bot {
                 self.search_step();
             }
             if Instant::now() >= deadline {
-                eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
+                // eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
                 return self.game.unwrap_move(self.best_move());
             }
         }
@@ -155,9 +155,6 @@ impl Bot {
 
     /// Get a node to simulate from, possibly by expanding the search tree.
     fn to_simulate_from(&mut self) -> Rc<RefCell<SearchNode>> {
-        if self.subtree.borrow().simulations == 0 {
-            return Rc::clone(&self.subtree);
-        }
         match self.select(Rc::clone(&self.subtree)) {
             SelectRes::Terminal(node) => node,
             SelectRes::NonTerminal(node) => self.expand(node),
@@ -239,15 +236,14 @@ impl Bot {
             .borrow()
             .children
             .iter()
-            // Manual max implementation since f64 is not totally ordered
             .map(|(c, x)| {
                 let lcb = x.borrow().lcb();
                 (c, lcb)
             })
             .min_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(c, v)| {
-                eprintln!("LCB: {:.1}%", v * 100.0);
-                eprintln!("best move: {:?}", c);
+                // eprintln!("LCB: {:.1}%", v * 100.0);
+                // eprintln!("best move: {:?}", c);
                 c
             })
             .unwrap_or_else(|| panic!("no search tree"))
