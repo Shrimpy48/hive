@@ -188,36 +188,24 @@ pub struct Pos {
 }
 
 impl Pos {
+    pub fn new(x: u8, y: u8) -> Self {
+        assert!(x < BOARD_SIZE);
+        assert!(y < BOARD_SIZE);
+        Self { x, y }
+    }
+
     pub(crate) fn neighbours(self) -> [Pos; 6] {
         Dir::dirs().map(|d| self.go(d))
     }
 
     pub(crate) fn go(self, d: Dir) -> Self {
         match d {
-            Dir::Up => Self {
-                x: self.x,
-                y: self.y + 1,
-            },
-            Dir::UpRight => Self {
-                x: self.x + 1,
-                y: self.y,
-            },
-            Dir::DownRight => Self {
-                x: self.x + 1,
-                y: self.y - 1,
-            },
-            Dir::Down => Self {
-                x: self.x,
-                y: self.y - 1,
-            },
-            Dir::DownLeft => Self {
-                x: self.x - 1,
-                y: self.y,
-            },
-            Dir::UpLeft => Self {
-                x: self.x - 1,
-                y: self.y + 1,
-            },
+            Dir::Up => Self::new(self.x, self.y + 1),
+            Dir::UpRight => Self::new(self.x + 1, self.y),
+            Dir::DownRight => Self::new(self.x + 1, self.y - 1),
+            Dir::Down => Self::new(self.x, self.y - 1),
+            Dir::DownLeft => Self::new(self.x - 1, self.y),
+            Dir::UpLeft => Self::new(self.x - 1, self.y + 1),
         }
     }
 
@@ -303,10 +291,10 @@ impl FromStr for Pos {
         let x_fromstr = coords[0].parse::<u8>()?;
         let y_fromstr = coords[1].parse::<u8>()?;
 
-        Ok(Pos {
-            x: x_fromstr,
-            y: y_fromstr,
-        })
+        Ok(Pos::new(
+            x_fromstr,
+            y_fromstr,
+        ))
     }
 }
 
@@ -434,7 +422,8 @@ impl PartialOrd for CostItem {
 // There are 22 pieces (26 with ladybirds and mosquitoes).
 // The board must have space to put all of these in a line with a 2 piece gap at the end,
 // so that pieces cannot jump from one end to the other.
-const BOARD_SIZE: u8 = 24;
+// Searching for ant moves requires a 2 piece gap on each side at the moment.
+const BOARD_SIZE: u8 = 32;
 // const BOARD_SIZE: u8 = 28;
 
 // Uses a fixed-size toroidal playing surface.
@@ -889,7 +878,6 @@ impl Hive {
     }
 
     // Hopcroft and Tarjan's DFS algorithm for finding articulation points.
-    // TODO move to Hive.
     fn find_structural_impl(
         &self,
         pos: Pos,
@@ -1036,7 +1024,7 @@ impl Hive {
     }
 
     fn ant_dests(&self, src: Pos) -> Vec<Pos> {
-        // TODO optimize / cache
+        // TODO: optimize / cache
         let mut visited = AHashSet::new();
         let mut to_consider = VecDeque::new();
         visited.insert(src);

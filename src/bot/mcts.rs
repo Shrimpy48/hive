@@ -119,6 +119,10 @@ impl Bot {
         }
     }
 
+    pub fn game(&self) -> &Game {
+        &self.game
+    }
+
     pub fn discard_others(&mut self, made: Move) {
         let made = self.game.wrap_move(made);
         // Making sure that the borrow is dropped before after_move is called
@@ -141,7 +145,7 @@ impl Bot {
                 self.search_step();
             }
             if Instant::now() >= deadline {
-                // eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
+                eprintln!("Performed {} iterations", self.subtree.borrow().simulations);
                 return self.game.unwrap_move(self.best_move());
             }
         }
@@ -174,7 +178,7 @@ impl Bot {
                 let ucb = x.borrow().ucb();
                 (m, x, ucb)
             })
-            .min_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
+            .max_by(|(_, _, a), (_, _, b)| a.total_cmp(b))
             .map(|(m, n, _)| (*m, Rc::clone(n)));
         match best {
             None => SelectRes::Terminal(node),
@@ -240,9 +244,24 @@ impl Bot {
                 let lcb = x.borrow().lcb();
                 (c, lcb)
             })
-            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .max_by(|(_, a), (_, b)| a.total_cmp(b))
             .map(|(c, v)| {
-                // eprintln!("LCB: {:.1}%", v * 100.0);
+                let subtree = self.subtree.borrow();
+                let node = subtree.children[c].borrow();
+                eprintln!(
+                    "LCB: {:.1}% (w={}, n={}, N={})",
+                    v * 100.0,
+                    node.wins,
+                    node.simulations,
+                    node.parent
+                        .as_ref()
+                        .unwrap()
+                        .1
+                        .upgrade()
+                        .unwrap()
+                        .borrow()
+                        .simulations
+                );
                 // eprintln!("best move: {:?}", c);
                 c
             })

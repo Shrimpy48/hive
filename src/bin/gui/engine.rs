@@ -8,6 +8,7 @@ use hive::Move;
 pub enum Msg {
     Pause,
     Start,
+    Reset,
     MakeMove(Move),
 }
 
@@ -40,11 +41,16 @@ impl<F: FnMut()> Engine<F> {
                     }
                     Ok(Msg::Start) => {}
                     Ok(Msg::MakeMove(m)) => self.bot.discard_others(m),
+                    Ok(Msg::Reset) => self.bot = Bot::new(),
                     Err(mpsc::TryRecvError::Disconnected) => return,
                     Err(mpsc::TryRecvError::Empty) => {}
                 }
 
-                let best_move = self.bot.mcts(Instant::now() + Duration::from_millis(250));
+                let best_move = if self.bot.game().over() {
+                    Move::Skip
+                } else {
+                    self.bot.mcts(Instant::now() + Duration::from_millis(250))
+                };
                 // Only block the UI thread if something has actually changed.
                 if *self.send.read().unwrap() != best_move {
                     *self.send.write().unwrap() = best_move;
@@ -56,6 +62,7 @@ impl<F: FnMut()> Engine<F> {
                     Ok(Msg::Pause) => {}
                     Ok(Msg::Start) => self.running = true,
                     Ok(Msg::MakeMove(m)) => self.bot.discard_others(m),
+                    Ok(Msg::Reset) => self.bot = Bot::new(),
                     Err(mpsc::RecvError) => return,
                 }
             }

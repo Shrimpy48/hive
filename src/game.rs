@@ -638,20 +638,22 @@ mod test {
 
     #[test]
     fn move_list_legal() {
-        let mut game = Game::new();
         let mut rng = thread_rng();
-        for _ in 0..100 {
-            let moves = game.moves();
-            for &m in moves.iter() {
-                if !game.is_legal(m) {
-                    eprintln!("move {m} illegal in position\n{game}");
-                    eprintln!("hive bounds: {:?}", game.hive.bounds());
-                    panic!("illegal move in move list");
+        'trials: for _ in 0..1000 {
+            let mut game = Game::new();
+            for _ in 0..100 {
+                let moves = game.moves();
+                for &m in moves.iter() {
+                    if !game.is_legal(m) {
+                        eprintln!("move {m} illegal in position\n{game}");
+                        eprintln!("hive bounds: {:?}", game.hive.bounds());
+                        panic!("illegal move in move list");
+                    }
                 }
-            }
-            match moves.choose(&mut rng) {
-                Some(&m) => game.make_move(game.wrap_move(m)).unwrap(),
-                None => return,
+                match moves.choose(&mut rng) {
+                    Some(&m) => game.make_move(game.wrap_move(m)).unwrap(),
+                    None => break 'trials,
+                }
             }
         }
     }

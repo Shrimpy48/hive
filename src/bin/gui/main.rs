@@ -78,7 +78,7 @@ impl GuiState {
 
 impl eframe::App for GuiState {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let engine_move = if self.engine_active {
+        let engine_move = if !self.game.over() && self.engine_active {
             *self.engine_recv.read().unwrap()
         } else {
             hive::Move::Skip
@@ -90,6 +90,19 @@ impl eframe::App for GuiState {
                     self.engine_send.send(engine::Msg::Start).unwrap();
                 } else {
                     self.engine_send.send(engine::Msg::Pause).unwrap();
+                }
+            }
+        });
+        egui::TopBottomPanel::top("game over bar").show(ctx, |ui| {
+            if self.game.over() {
+                ui.label(match self.game.result() {
+                    hive::Outcome::Win(player) => format!("{player} wins!"),
+                    hive::Outcome::Draw => "Draw!".to_owned(),
+                    hive::Outcome::Ongoing => unreachable!(),
+                });
+                if ui.button("Play again").clicked() {
+                    self.game = Game::default();
+                    self.engine_send.send(engine::Msg::Reset).unwrap();
                 }
             }
         });
